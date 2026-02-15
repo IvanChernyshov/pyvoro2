@@ -1,0 +1,98 @@
+site_name: pyvoro2
+site_description: Python bindings for Voro++ (3D Voronoi and power/Laguerre tessellations) with periodic and topology utilities.
+site_url: https://IvanChernyshov.github.io/pyvoro2/
+repo_url: https://github.com/IvanChernyshov/pyvoro2
+repo_name: IvanChernyshov/pyvoro2
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.top
+    - toc.integrate
+    - search.suggest
+    - search.highlight
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: false
+            show_root_heading: true
+            show_root_toc_entry: false
+            heading_level: 2
+  - mkdocs-jupyter:
+      # Limit mkdocs-jupyter processing strictly to notebooks.
+      #
+      # Why: both mkdocstrings and pandoc use the ":::" prefix for *different*
+      # syntaxes. mkdocstrings uses it as a directive ("::: pyvoro2.api"),
+      # while pandoc interprets it as a fenced Div block and emits warnings if
+      # there is no closing ":::".
+      #
+      # mkdocs-jupyter can invoke pandoc internally, so we scope it to *.ipynb
+      # to avoid spurious warnings on API reference pages.
+      include: ["notebooks/*.ipynb"]
+      execute: false
+      include_source: true
+      allow_errors: false
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path: .
+      check_paths: true
+  - pymdownx.arithmatex:
+      generic: true
+  - footnotes
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+extra_css:
+  - stylesheets/extra.css
+
+nav:
+  - Home: index.md
+  - User guide:
+      - Concepts: guide/concepts.md
+      - Domains: guide/domains.md
+      - Operations: guide/operations.md
+      - Topology and graphs: guide/topology.md
+      - Inverse fitting: guide/inverse.md
+      - Visualization: guide/visualization.md
+  - Examples:
+      - notebooks/01_basic_compute.ipynb
+      - notebooks/02_periodic_graph.ipynb
+      - notebooks/03_locate_and_ghost.ipynb
+      - notebooks/04_inverse_fit.ipynb
+      - notebooks/05_visualization.ipynb
+  - API reference:
+      - Domains: reference/domains.md
+      - API: reference/api.md
+      - Diagnostics: reference/diagnostics.md
+      - Validation: reference/validation.md
+      - Duplicate check: reference/duplicates.md
+      - Normalization: reference/normalize.md
+      - Face properties: reference/face_properties.md
+      - Inverse fitting: reference/inverse.md
+      - Visualization: reference/viz3d.md
+  - Project:
+      - About: project/about.md
+      - Changelog: about/changelog.md
+      - License: project/license.md
+      - AI usage: project/ai.md
+      - Roadmap: project/roadmap.md

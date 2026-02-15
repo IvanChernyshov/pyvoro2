@@ -1,0 +1,28 @@
+/*
+Extra CSS for pyvoro2 documentation.
+
+1) Keep the navigation header/tabs visible while scrolling.
+   Some users prefer a "sticky" nav bar for quick access.
+
+2) Make sure the header stays above content.
+*/
+
+/* Keep the main header fixed/sticky. */
+.md-header {
+  position: sticky;
+  top: 0;
+  z-index: 999;
+}
+
+/* Keep the tabs row (if enabled) visible too. */
+.md-tabs {
+  position: sticky;
+  /* Tabs sit *below* the header; use the theme variable for correct offset. */
+  top: var(--md-header-height);
+  z-index: 998;
+}
+
+/* If header auto-hide is ever enabled by a theme update, force it off. */
+.md-header[data-md-state="hidden"] {
+  transform: none !important;
+}
