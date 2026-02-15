@@ -1,12 +1,5 @@
 # pyvoro2
 
-[![CI](https://github.com/IvanChernyshov/pyvoro2/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanChernyshov/pyvoro2/actions/workflows/ci.yml) [![Docs](https://github.com/IvanChernyshov/pyvoro2/actions/workflows/docs.yml/badge.svg)](https://github.com/IvanChernyshov/pyvoro2/actions/workflows/docs.yml) [![PyPI](https://img.shields.io/pypi/v/pyvoro2.svg)](https://pypi.org/project/pyvoro2/) [![Python Versions](https://img.shields.io/pypi/pyversions/pyvoro2.svg)](https://pypi.org/project/pyvoro2/) [![License](https://img.shields.io/pypi/l/pyvoro2.svg)](https://github.com/IvanChernyshov/pyvoro2/blob/main/LICENSE)
-
-**Documentation:** https://IvanChernyshov.github.io/pyvoro2/
-
-
----
-
 **pyvoro2** is a Python interface to the C++ library **Voro++** for computing
 **3D tessellations** around a set of points:
 
@@ -44,7 +37,7 @@ view_tessellation(
 )
 ```
 
-<img src="https://raw.githubusercontent.com/IvanChernyshov/pyvoro2/main/docs/assets/quickstart_box.png" width="50%" alt="Voronoi tessellation in a box" />
+<img src="assets/quickstart_box.png" width="50%" alt="Voronoi tessellation in a box" />
 
 ### 2) Power/Laguerre tessellation (weighted Voronoi)
 
@@ -100,20 +93,6 @@ For stricter post-hoc checks, see:
 - `pyvoro2.validate_tessellation(..., level='strict')`
 - `pyvoro2.validate_normalized_topology(..., level='strict')`
 
-## Platform note (macOS)
-
-On some macOS builds, fully periodic **power/Laguerre** tessellations can
-occasionally produce a non-reciprocal face/neighbor graph. In that case,
-requesting `return_face_shifts=True` may raise a `ValueError` because pyvoro2
-cannot assign consistent periodic shifts.
-
-Workarounds:
-
-- Avoid requesting shifts (`return_face_shifts=False`), or
-- disable shift validation (`validate_face_shifts=False`, shifts may be
-  unreliable), or
-- run strict periodic power workflows on Linux/Windows.
-
 ## Why use pyvoro2
 
 Voro++ is fast and feature-rich, but it is a C++ library with a low-level API.
@@ -137,14 +116,14 @@ implementation-oriented details.
 
 | Section | What it contains |
 |---|---|
-| [Concepts](https://IvanChernyshov.github.io/pyvoro2/guide/concepts/) | What Voronoi and power/Laguerre tessellations are, and what you can expect from them. |
-| [Domains](https://IvanChernyshov.github.io/pyvoro2/guide/domains/) | Which containers exist (`Box`, `OrthorhombicCell`, `PeriodicCell`) and how to choose between them. |
-| [Operations](https://IvanChernyshov.github.io/pyvoro2/guide/operations/) | How to compute tessellations, assign query points, and compute probe (ghost) cells. |
-| [Topology and graphs](https://IvanChernyshov.github.io/pyvoro2/guide/topology/) | How to build a neighbor graph that respects periodic images, and how normalization helps. |
-| [Inverse fitting](https://IvanChernyshov.github.io/pyvoro2/guide/inverse/) | Fit power/Laguerre radii from desired pairwise plane positions (with optional constraints/penalties). |
-| [Visualization](https://IvanChernyshov.github.io/pyvoro2/guide/visualization/) | Optional py3Dmol helpers for debugging and exploratory analysis. |
-| [Examples (notebooks)](https://IvanChernyshov.github.io/pyvoro2/notebooks/01_basic_compute/) | End-to-end examples that combine the pieces above. |
-| [API reference](https://IvanChernyshov.github.io/pyvoro2/reference/api/) | The full reference (docstrings). |
+| [Concepts](guide/concepts.md) | What Voronoi and power/Laguerre tessellations are, and what you can expect from them. |
+| [Domains](guide/domains.md) | Which containers exist (`Box`, `OrthorhombicCell`, `PeriodicCell`) and how to choose between them. |
+| [Operations](guide/operations.md) | How to compute tessellations, assign query points, and compute probe (ghost) cells. |
+| [Topology and graphs](guide/topology.md) | How to build a neighbor graph that respects periodic images, and how normalization helps. |
+| [Inverse fitting](guide/inverse.md) | Fit power/Laguerre radii from desired pairwise plane positions (with optional constraints/penalties). |
+| [Visualization](guide/visualization.md) | Optional py3Dmol helpers for debugging and exploratory analysis. |
+| [Examples (notebooks)](notebooks/01_basic_compute.ipynb) | End-to-end examples that combine the pieces above. |
+| [API reference](reference/api.md) | The full reference (docstrings). |
 
 ## Installation
 
@@ -207,15 +186,9 @@ Some parts of the implementation, tests, and documentation were developed with
 AI assistance (OpenAI ChatGPT). The maintainer reviews and integrates changes,
 and remains responsible for the resulting code and scientific claims.
 
-Details are documented in the [AI usage](https://IvanChernyshov.github.io/pyvoro2/project/ai/) page.
+Details are documented in the [AI usage](project/ai.md) page.
 
 ## License
 
 - pyvoro2 is released under the **MIT License**.
 - Voro++ is vendored and redistributed under its original license (see the project pages).
-
----
-
-*This README is auto-generated from the MkDocs sources in `docs/`.*
-To update it, edit the docs pages and re-run: `python tools/gen_readme.py`.
-

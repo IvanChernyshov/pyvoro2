@@ -1,0 +1,79 @@
+[build-system]
+requires = [
+  'scikit-build-core>=0.11.2',
+  'pybind11>=2.11.1,<3',
+  'numpy>=1.23,<2; python_version < "3.11"',
+  'numpy>=1.23,<3; python_version >= "3.11"',
+]
+build-backend = 'scikit_build_core.build'
+
+[project]
+name = 'pyvoro2'
+dynamic = ['version']
+description = 'Python bindings for Voro++ (3D Voronoi and Laguerre tessellations) with periodic and topology utilities.'
+readme = 'README.md'
+requires-python = '>=3.10'
+license = {file = 'LICENSE'}
+authors = [
+  {name = 'Ivan Yu. Chernyshov', email = 'ivan.chernyshoff@gmail.com'},
+]
+dependencies = [
+  'numpy>=1.23,<2; python_version < "3.11"',
+  'numpy>=1.23,<3; python_version >= "3.11"',
+]
+classifiers = [
+  'Development Status :: 4 - Beta',
+  'Intended Audience :: Science/Research',
+  'Topic :: Scientific/Engineering :: Chemistry',
+  'Topic :: Scientific/Engineering :: Physics',
+  'License :: OSI Approved :: MIT License',
+  'Operating System :: OS Independent',
+  'Programming Language :: Python :: 3',
+  'Programming Language :: Python :: 3 :: Only',
+  'Programming Language :: Python :: 3.10',
+  'Programming Language :: Python :: 3.11',
+  'Programming Language :: Python :: 3.12',
+  'Programming Language :: Python :: 3.13',
+  'Programming Language :: C++',
+]
+
+[project.urls]
+Homepage = 'https://github.com/IvanChernyshov/pyvoro2'
+Repository = 'https://github.com/IvanChernyshov/pyvoro2'
+Issues = 'https://github.com/IvanChernyshov/pyvoro2/issues'
+
+
+
+[project.optional-dependencies]
+test = ['pytest']
+dev = ['pytest', 'flake8', 'tomli; python_version < "3.11"']
+docs = [
+  'mkdocs>=1.6',
+  'mkdocs-material>=9.5',
+  'mkdocstrings[python]>=0.27',
+  'mkdocs-jupyter>=0.25',
+  'pymdown-extensions>=10.0',
+  'mkdocs-section-index>=0.3.9',
+]
+viz = [
+  'py3Dmol',
+]
+
+[tool.scikit-build]
+wheel.packages = ['src/pyvoro2']
+cmake.version = '>=3.20'
+cmake.build-type = 'Release'
+build.verbose = true
+
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "src/pyvoro2/__about__.py"
+regex = "^__version__\\s+=\\s+['\"](?P<value>.*)['\"]"
+
+[tool.pytest.ini_options]
+testpaths = ['tests']
+markers = [
+  'fuzz: randomized fuzz/property tests (opt-in)',
+  'pyvoro: cross-check tests requiring the optional pyvoro dependency (opt-in)',
+  'slow: slow tests (opt-in)',
+]
