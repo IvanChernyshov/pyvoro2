@@ -1,0 +1,87 @@
+Subject: [PATCH] Inflate stored max_radius by 1 ULP for robust radical pruning
+
+Voro++ uses max_radius (global maximum particle radius) to conservatively
+prune blocks/particles in the radical (power diagram) computation. If
+max_radius is stored exactly, then for the maximum-radius particle
+r_mul = r_i^2 - max_radius^2 becomes exactly zero, making several pruning
+inequalities knife-edge and sensitive to platform/optimization floating
+point differences.
+
+Store max_radius as nextafter(r, +inf) so r_mul remains slightly negative
+for the maximum-radius particle, making pruning slightly less aggressive
+but preserving correctness and improving cross-platform robustness.
+
+--- a/src/container.cc
++++ b/src/container.cc
+@@ -106,7 +106,7 @@
+ 		id[ijk][co[ijk]]=n;
+ 		double *pp=p[ijk]+4*co[ijk]++;
+ 		*(pp++)=x;*(pp++)=y;*(pp++)=z;*pp=r;
+-		if(max_radius<r) max_radius=r;
++		if(max_radius<r) max_radius=std::nextafter(r,HUGE_VAL);
+ 	}
+ }
+ 
+@@ -138,7 +138,7 @@
+ 		vo.add(ijk,co[ijk]);
+ 		double *pp=p[ijk]+4*co[ijk]++;
+ 		*(pp++)=x;*(pp++)=y;*(pp++)=z;*pp=r;
+-		if(max_radius<r) max_radius=r;
++		if(max_radius<r) max_radius=std::nextafter(r,HUGE_VAL);
+ 	}
+ }
+ 
+
+--- a/src/container.hh
++++ b/src/container.hh
+@@ -712,7 +712,7 @@
+ 			if(put_locate_block(ijk,x,y,z)) {
+ 				double *pp=p[ijk]+4*co[ijk]++,tm=max_radius;
+ 				*(pp++)=x;*(pp++)=y;*(pp++)=z;*pp=r;
+-				if(r>max_radius) max_radius=r;
++				if(r>max_radius) max_radius=std::nextafter(r,HUGE_VAL);
+ 				bool q=compute_cell(c,ijk,co[ijk]-1);
+ 				co[ijk]--;max_radius=tm;
+ 				return q;
+
+--- a/src/container_prd.cc
++++ b/src/container_prd.cc
+@@ -111,7 +111,7 @@
+ 	id[ijk][co[ijk]]=n;
+ 	double *pp=p[ijk]+4*co[ijk]++;
+ 	*(pp++)=x;*(pp++)=y;*(pp++)=z;*pp=r;
+-	if(max_radius<r) max_radius=r;
++	if(max_radius<r) max_radius=std::nextafter(r,HUGE_VAL);
+ }
+ 
+ /** Put a particle into the correct region of the container.
+@@ -144,7 +144,7 @@
+ 	id[ijk][co[ijk]]=n;
+ 	double *pp=p[ijk]+4*co[ijk]++;
+ 	*(pp++)=x;*(pp++)=y;*(pp++)=z;*pp=r;
+-	if(max_radius<r) max_radius=r;
++	if(max_radius<r) max_radius=std::nextafter(r,HUGE_VAL);
+ }
+ 
+ /** Put a particle into the correct region of the container, also recording
+@@ -174,7 +174,7 @@
+ 	vo.add(ijk,co[ijk]);
+ 	double *pp=p[ijk]+4*co[ijk]++;
+ 	*(pp++)=x;*(pp++)=y;*(pp++)=z;*pp=r;
+-	if(max_radius<r) max_radius=r;
++	if(max_radius<r) max_radius=std::nextafter(r,HUGE_VAL);
+ }
+ 
+ /** Takes a particle position vector and computes the region index into which
+
+--- a/src/container_prd.hh
++++ b/src/container_prd.hh
+@@ -637,7 +637,7 @@
+ 			put_locate_block(ijk,x,y,z);
+ 			double *pp=p[ijk]+4*co[ijk]++,tm=max_radius;
+ 			*(pp++)=x;*(pp++)=y;*(pp++)=z;*pp=r;
+-			if(r>max_radius) max_radius=r;
++			if(r>max_radius) max_radius=std::nextafter(r,HUGE_VAL);
+ 			bool q=compute_cell(c,ijk,co[ijk]-1);
+ 			co[ijk]--;max_radius=tm;
+ 			return q;

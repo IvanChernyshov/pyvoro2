@@ -1,7 +1,6 @@
 # pyvoro2
 
 [![CI](https://github.com/IvanChernyshov/pyvoro2/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanChernyshov/pyvoro2/actions/workflows/ci.yml) [![Docs](https://github.com/IvanChernyshov/pyvoro2/actions/workflows/docs.yml/badge.svg)](https://github.com/IvanChernyshov/pyvoro2/actions/workflows/docs.yml) [![PyPI](https://img.shields.io/pypi/v/pyvoro2.svg)](https://pypi.org/project/pyvoro2/) [![Python Versions](https://img.shields.io/pypi/pyversions/pyvoro2.svg)](https://pypi.org/project/pyvoro2/) [![License](https://img.shields.io/pypi/l/pyvoro2.svg)](https://github.com/IvanChernyshov/pyvoro2/blob/main/LICENSE)
-
 **Documentation:** https://IvanChernyshov.github.io/pyvoro2/
 
 
@@ -19,7 +18,7 @@ matter physics — especially **periodic boundary conditions** and **neighbor gr
 
 pyvoro2 is designed to be **honest and predictable**:
 
-- it vendors and wraps **unmodified** upstream Voro++;
+- it vendors and wraps an upstream Voro++ snapshot (with a small numeric robustness patch for power/Laguerre diagrams);
 - the core tessellation modes are **standard Voronoi** and **power/Laguerre**.
 
 ## Quickstart
@@ -100,19 +99,10 @@ For stricter post-hoc checks, see:
 - `pyvoro2.validate_tessellation(..., level='strict')`
 - `pyvoro2.validate_normalized_topology(..., level='strict')`
 
-## Platform note (macOS)
-
-On some macOS builds, fully periodic **power/Laguerre** tessellations can
-occasionally produce a non-reciprocal face/neighbor graph. In that case,
-requesting `return_face_shifts=True` may raise a `ValueError` because pyvoro2
-cannot assign consistent periodic shifts.
-
-Workarounds:
-
-- Avoid requesting shifts (`return_face_shifts=False`), or
-- disable shift validation (`validate_face_shifts=False`, shifts may be
-  unreliable), or
-- run strict periodic power workflows on Linux/Windows.
+Note: pyvoro2 vendors a small patch to Voro++ that inflates the stored global `max_radius`
+by 1 ULP (via `nextafter`) in *power/Laguerre* mode. This makes Voro++'s internal radical
+pruning slightly less aggressive, but avoids rare cross-platform edge cases where fully
+periodic power tessellations could yield a non-reciprocal face/neighbor graph.
 
 ## Why use pyvoro2
 

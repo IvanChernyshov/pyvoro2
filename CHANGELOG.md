@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 The format is based on *Keep a Changelog*, and this project follows *Semantic Versioning*.
 
+## [0.4.1] - 2026-02-16
+
+### Fixed
+
+- Vendored Voro++: inflate the stored global `max_radius` by 1 ULP (via `nextafter`) in
+  power/Laguerre mode to make radical pruning robust across platforms.
+- Removed a Python-side workaround that recomputed fully periodic orthorhombic power tessellations
+  via the periodic (triclinic) backend when periodic face-shift assignment failed.
+- Updated documentation to reflect the patched vendored Voro++ snapshot.
+
 ## [0.4.0] - 2026-02-15
 
 Initial public release.

@@ -12,7 +12,7 @@ matter physics — especially **periodic boundary conditions** and **neighbor gr
 
 pyvoro2 is designed to be **honest and predictable**:
 
-- it vendors and wraps **unmodified** upstream Voro++;
+- it vendors and wraps an upstream Voro++ snapshot (with a small numeric robustness patch for power/Laguerre diagrams);
 - the core tessellation modes are **standard Voronoi** and **power/Laguerre**.
 
 ## Quickstart
@@ -92,6 +92,11 @@ For stricter post-hoc checks, see:
 
 - `pyvoro2.validate_tessellation(..., level='strict')`
 - `pyvoro2.validate_normalized_topology(..., level='strict')`
+
+Note: pyvoro2 vendors a small patch to Voro++ that inflates the stored global `max_radius`
+by 1 ULP (via `nextafter`) in *power/Laguerre* mode. This makes Voro++'s internal radical
+pruning slightly less aggressive, but avoids rare cross-platform edge cases where fully
+periodic power tessellations could yield a non-reciprocal face/neighbor graph.
 
 ## Why use pyvoro2
 

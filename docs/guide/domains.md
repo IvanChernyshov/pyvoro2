@@ -60,18 +60,14 @@ Notes:
 - `return_face_shifts=True` is supported whenever at least one axis is periodic.
 - For non-periodic axes, query points outside the bounds are treated as out-of-domain.
 
-Platform note (macOS):
+Robustness note:
 
-- On some macOS builds (compiler/CPU-dependent), fully periodic **power/Laguerre**
-  tessellations can occasionally produce a non-reciprocal face/neighbor graph.
-  In that case, requesting `return_face_shifts=True` may raise a `ValueError`
-  because pyvoro2 cannot assign consistent periodic shifts.
-
-  Workarounds (choose what matches your workflow):
-
-  - Disable shift validation: `validate_face_shifts=False` (shifts may be unreliable).
-  - Avoid requesting shifts: `return_face_shifts=False`.
-  - Use a non-macOS build for strict periodic power workflows.
+- pyvoro2 vendors a small Voro++ patch that makes fully periodic **power/Laguerre**
+  tessellations more robust across platforms (it inflates the stored global `max_radius`
+  by 1 ULP via `nextafter`, making radical pruning slightly less aggressive).
+- If `return_face_shifts=True` fails with a `ValueError`, it is typically due to a
+  genuine geometric degeneracy (for example, nearly co-spherical sites) rather than
+  a platform-specific issue.
 
 ## `PeriodicCell` (triclinic, fully periodic)
 

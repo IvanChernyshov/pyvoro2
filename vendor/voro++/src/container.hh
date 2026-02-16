@@ -712,7 +712,7 @@ class container_poly : public container_base, public radius_poly {
 			if(put_locate_block(ijk,x,y,z)) {
 				double *pp=p[ijk]+4*co[ijk]++,tm=max_radius;
 				*(pp++)=x;*(pp++)=y;*(pp++)=z;*pp=r;
-				if(r>max_radius) max_radius=r;
+				if(r>max_radius) max_radius=std::nextafter(r,HUGE_VAL);
 				bool q=compute_cell(c,ijk,co[ijk]-1);
 				co[ijk]--;max_radius=tm;
 				return q;
