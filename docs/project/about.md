@@ -20,8 +20,9 @@ At the core, pyvoro2 exposes only two mathematically standard tessellations:
 Voro++ is a widely used C++ library for computing Voronoi cells efficiently in 3D.
 It implements robust algorithms and is commonly used in computational physics and materials science.
 
-pyvoro2 vendors an **unmodified** snapshot of upstream Voro++ and builds its Python extension against it.
-This keeps the core geometry trustworthy and makes it easy to track upstream behavior.
+pyvoro2 vendors a snapshot of upstream Voro++ and builds its Python extension against it.
+The vendored snapshot includes the upstream numeric robustness fix for *power/Laguerre* (radical) pruning,
+which avoids rare cross-platform edge cases in fully periodic power tessellations.
 
 ## When should you use pyvoro2?
 

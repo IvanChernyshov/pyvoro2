@@ -9,3 +9,7 @@ This project vendors and links against the following third-party software:
 - License: See `vendor/voro++/LICENSE`
 
 pyvoro2 is licensed under the MIT License (see `LICENSE`). The included Voro++ code remains under its original license.
+
+Local modifications:
+
+- None. The vendored Voro++ snapshot is kept unmodified (aside from being vendored into this repository).

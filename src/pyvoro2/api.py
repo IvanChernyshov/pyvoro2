@@ -342,85 +342,6 @@ def compute(
             else tuple(bool(x) for x in domain.periodic)
         )
         is_periodic = isinstance(domain, OrthorhombicCell) and any(periodic_flags)
-        full_periodic_ortho = (
-            isinstance(domain, OrthorhombicCell)
-            and periodic_flags == (True, True, True)
-        )
-
-        def _compute_full_periodic_ortho_via_periodic_backend(
-            *,
-            mode: Literal['standard', 'power'],
-            rr: np.ndarray | None,
-        ) -> list[dict[str, Any]]:
-            """Compute fully periodic OrthorhombicCell via Voro++ periodic containers.
-
-            This is a fallback path for rare platform-dependent issues in the
-            rectangular container backend (or its face bookkeeping).
-
-            It remaps points into the primary cell, shifts the origin to (0,0,0),
-            calls the periodic container backend, then shifts outputs back.
-            """
-            assert isinstance(domain, OrthorhombicCell)
-            (xmin, xmax), (ymin, ymax), (zmin, zmax) = bounds
-            origin = np.asarray((xmin, ymin, zmin), dtype=np.float64)
-            bx = float(xmax - xmin)
-            by = float(ymax - ymin)
-            bz = float(zmax - zmin)
-
-            # Wrap into the primary domain (half-open in periodic axes)
-            pts_w = domain.remap_cart(pts, return_shifts=False)
-            pts_i = pts_w - origin
-            cell_params = (bx, 0.0, by, 0.0, 0.0, bz)
-
-            if mode == 'standard':
-                cells_i = core.compute_periodic_standard(
-                    pts_i,
-                    ids_internal,
-                    cell_params,
-                    (nx, ny, nz),
-                    init_mem,
-                    opts,
-                )
-            elif mode == 'power':
-                if rr is None:
-                    raise ValueError('internal error: rr is required for power mode')
-                cells_i = core.compute_periodic_power(
-                    pts_i,
-                    ids_internal,
-                    rr,
-                    cell_params,
-                    (nx, ny, nz),
-                    init_mem,
-                    opts,
-                )
-            else:
-                raise ValueError(f'unknown mode: {mode}')
-
-            if include_empty:
-                # Voro++ remaps inserted points into the primary cell; mirror that
-                # for any empty-cell records we inject.
-                _add_empty_cells_inplace(cells_i, n=n, sites=pts_i, opts=opts)
-
-            # Shift outputs back to the original bounds origin.
-            if float(xmin) != 0.0 or float(ymin) != 0.0 or float(zmin) != 0.0:
-                ox, oy, oz = float(origin[0]), float(origin[1]), float(origin[2])
-                for cc in cells_i:
-                    s = cc.get('site')
-                    if s is not None and len(s) == 3:
-                        cc['site'] = [
-                            float(s[0]) + ox,
-                            float(s[1]) + oy,
-                            float(s[2]) + oz,
-                        ]
-                    if return_vertices:
-                        vv = cc.get('vertices')
-                        if vv:
-                            cc['vertices'] = [
-                                [float(x) + ox, float(y) + oy, float(z) + oz]
-                                for (x, y, z) in vv
-                            ]
-            return cells_i
-
         if return_face_shifts:
             if not is_periodic:
                 raise ValueError(
@@ -479,50 +400,21 @@ def compute(
         if return_face_shifts:
             assert isinstance(domain, OrthorhombicCell)
             a, b, cvec = domain.lattice_vectors
-            try:
-                _add_periodic_face_shifts_inplace(
-                    cells,
-                    lattice_vectors=(a, b, cvec),
-                    periodic_mask=periodic_flags,
-                    mode=mode,
-                    radii=(
-                        np.asarray(radii, dtype=np.float64)
-                        if radii is not None
-                        else None
-                    ),
-                    search=int(face_shift_search),
-                    tol=face_shift_tol,
-                    validate=bool(validate_face_shifts),
-                    repair=bool(repair_face_shifts),
-                )
-            except ValueError:
-                # Fallback for rare platform-dependent issues (observed on macOS)
-                # where the rectangular periodic backend can produce a face/neighbor
-                # graph that prevents consistent shift assignment.
-                if full_periodic_ortho and mode == 'power':
-                    cells = _compute_full_periodic_ortho_via_periodic_backend(
-                        mode=mode,
-                        rr=rr,
-                    )
-                    # Re-run shift assignment on fallback output.
-                    _add_periodic_face_shifts_inplace(
-                        cells,
-                        lattice_vectors=(a, b, cvec),
-                        periodic_mask=(True, True, True),
-                        mode=mode,
-                        radii=(
-                            np.asarray(radii, dtype=np.float64)
-                            if radii is not None
-                            else None
-                        ),
-                        search=int(face_shift_search),
-                        tol=face_shift_tol,
-                        validate=bool(validate_face_shifts),
-                        repair=bool(repair_face_shifts),
-                    )
-                else:
-                    raise
-
+            _add_periodic_face_shifts_inplace(
+                cells,
+                lattice_vectors=(a, b, cvec),
+                periodic_mask=periodic_flags,
+                mode=mode,
+                radii=(
+                    np.asarray(radii, dtype=np.float64)
+                    if radii is not None
+                    else None
+                ),
+                search=int(face_shift_search),
+                tol=face_shift_tol,
+                validate=bool(validate_face_shifts),
+                repair=bool(repair_face_shifts),
+            )
         if ids_user is not None:
             _remap_ids_inplace(cells, ids_user)
 

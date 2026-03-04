@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-import sys
 
 import pyvoro2
 
@@ -79,29 +78,16 @@ def test_validate_tessellation_strict_passes_for_power_mode_periodic_case() -> N
     pts = rng.uniform(0.0, 8.0, size=(25, 3))
     radii = rng.uniform(0.1, 0.5, size=(25,))
 
-    try:
-        cells = pyvoro2.compute(
-            pts,
-            domain=dom,
-            mode='power',
-            radii=radii,
-            return_vertices=True,
-            return_faces=True,
-            return_face_shifts=True,
-            repair_face_shifts=True,
-        )
-    except ValueError as e:
-        # Known upstream/platform-specific instability: on some macOS builds,
-        # Voro++ can return a non-reciprocal face/neighbor graph for fully
-        # periodic *power* diagrams, which prevents pyvoro2 from assigning
-        # consistent periodic face shifts.
-        #
-        # We accept this as an expected failure on macOS for now and document
-        # workarounds in the README/docs.
-        if sys.platform == 'darwin':
-            pytest.xfail(f'macOS power-periodic instability: {e}')
-        raise
-
+    cells = pyvoro2.compute(
+        pts,
+        domain=dom,
+        mode='power',
+        radii=radii,
+        return_vertices=True,
+        return_faces=True,
+        return_face_shifts=True,
+        repair_face_shifts=True,
+    )
     diag = pyvoro2.validate_tessellation(cells, dom, level='strict')
     assert diag.ok_volume
 
