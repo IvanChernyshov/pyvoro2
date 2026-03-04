@@ -1,6 +1,7 @@
 # pyvoro2
 
 [![CI](https://github.com/IvanChernyshov/pyvoro2/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanChernyshov/pyvoro2/actions/workflows/ci.yml) [![Docs](https://github.com/IvanChernyshov/pyvoro2/actions/workflows/docs.yml/badge.svg)](https://github.com/IvanChernyshov/pyvoro2/actions/workflows/docs.yml) [![PyPI](https://img.shields.io/pypi/v/pyvoro2.svg)](https://pypi.org/project/pyvoro2/) [![Python Versions](https://img.shields.io/pypi/pyversions/pyvoro2.svg)](https://pypi.org/project/pyvoro2/) [![License](https://img.shields.io/pypi/l/pyvoro2.svg)](https://github.com/IvanChernyshov/pyvoro2/blob/main/LICENSE)
+
 **Documentation:** https://IvanChernyshov.github.io/pyvoro2/
 
 

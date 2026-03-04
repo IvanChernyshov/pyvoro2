@@ -353,7 +353,7 @@ def main() -> None:
 
     # Header + badges.
     parts.append(
-        f'# {pkg_name}\n\n' + badges + '\n' + f'**Documentation:** {docs_site}\n'
+        f'# {pkg_name}\n\n' + badges + '\n\n' + f'**Documentation:** {docs_site}\n'
     )
 
     # Add pages.
