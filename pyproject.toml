@@ -22,7 +22,7 @@ dependencies = [
   'numpy>=1.23,<3; python_version >= "3.11"',
 ]
 classifiers = [
-  'Development Status :: 4 - Beta',
+  'Development Status :: 3 - Alpha',
   'Intended Audience :: Science/Research',
   'Topic :: Scientific/Engineering :: Chemistry',
   'Topic :: Scientific/Engineering :: Physics',
