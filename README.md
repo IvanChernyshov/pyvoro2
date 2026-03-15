@@ -14,8 +14,9 @@
 - **power / Laguerre tessellations** (weighted Voronoi, via per-site radii)
 
 The focus is not only on computing polyhedra, but on making the results *useful* in
-scientific settings that are common in chemistry, materials science, and condensed
-matter physics — especially **periodic boundary conditions** and **neighbor graphs**.
+scientific and geometric settings that need **periodic boundary conditions**,
+explicit **neighbor-image shifts**, and a reusable mathematical interface to
+Voronoi and power tessellations.
 
 pyvoro2 is designed to be **honest and predictable**:
 
@@ -118,7 +119,7 @@ practical pieces that are easy to get wrong:
 - convenience operations beyond full tessellation:
   - `locate(...)` (owner lookup for arbitrary query points)
   - `ghost_cells(...)` (probe cell at a query point without inserting it)
-  - inverse fitting utilities for **fitting power weights** from desired pairwise plane locations
+  - power-fitting utilities for **fitting power weights** from desired pairwise separator locations
 
 ## Documentation overview
 
@@ -132,7 +133,7 @@ implementation-oriented details.
 | [Domains](https://delonecommons.github.io/pyvoro2/guide/domains/) | Which containers exist (`Box`, `OrthorhombicCell`, `PeriodicCell`) and how to choose between them. |
 | [Operations](https://delonecommons.github.io/pyvoro2/guide/operations/) | How to compute tessellations, assign query points, and compute probe (ghost) cells. |
 | [Topology and graphs](https://delonecommons.github.io/pyvoro2/guide/topology/) | How to build a neighbor graph that respects periodic images, and how normalization helps. |
-| [Inverse fitting](https://delonecommons.github.io/pyvoro2/guide/inverse/) | Fit power/Laguerre radii from desired pairwise plane positions (with optional constraints/penalties). |
+| [Power fitting](https://delonecommons.github.io/pyvoro2/guide/inverse/) | Fit power weights from pairwise bisector constraints, realized-face matching, and self-consistent active sets. |
 | [Visualization](https://delonecommons.github.io/pyvoro2/guide/visualization/) | Optional py3Dmol helpers for debugging and exploratory analysis. |
 | [Examples (notebooks)](https://delonecommons.github.io/pyvoro2/notebooks/01_basic_compute/) | End-to-end examples that combine the pieces above. |
 | [API reference](https://delonecommons.github.io/pyvoro2/reference/api/) | The full reference (docstrings). |
@@ -185,7 +186,7 @@ Tip: you can combine markers, e.g. `pytest -m "fuzz and pyvoro" --fuzz-n 100`.
 
 ## Project status
 
-pyvoro2 is currently in **beta**.
+pyvoro2 is currently in **alpha**.
 
 The core tessellation modes (standard and power/Laguerre) are stable, and a large
 part of the work in this repository focuses on tests and documentation.

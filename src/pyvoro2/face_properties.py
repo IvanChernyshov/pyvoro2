@@ -4,8 +4,8 @@ This module adds optional post-processing utilities for Voronoi cells returned
 by :func:`pyvoro2.compute`.
 
 The core computation in Voro++ is fast and focuses on topology/geometry of the
-cells. Many chemistry workflows benefit from extra per-face descriptors (face
-centroid, oriented normals, and a few contact heuristics). These can be
+cells. Many downstream geometry workflows benefit from extra per-face descriptors
+(face centroid, oriented normals, and a few boundary heuristics). These can be
 expensive, so they are provided as an explicit, opt-in post-processing step.
 """
 

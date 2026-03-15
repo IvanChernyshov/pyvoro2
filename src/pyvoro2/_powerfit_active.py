@@ -17,6 +17,7 @@ from ._powerfit_solver import (
     fit_power_weights,
     weights_to_radii,
 )
+from .diagnostics import TessellationDiagnostics
 from .domains import Box, OrthorhombicCell, PeriodicCell
 
 
@@ -58,6 +59,11 @@ class ActiveSetIteration:
 
 @dataclass(frozen=True, slots=True)
 class PairConstraintDiagnostics:
+    site_i: np.ndarray
+    site_j: np.ndarray
+    shift: np.ndarray
+    target: np.ndarray
+    confidence: np.ndarray
     predicted: np.ndarray
     predicted_fraction: np.ndarray
     predicted_position: np.ndarray
@@ -66,15 +72,20 @@ class PairConstraintDiagnostics:
     realized: np.ndarray
     realized_same_shift: np.ndarray
     realized_other_shift: np.ndarray
+    endpoint_i_empty: np.ndarray
+    endpoint_j_empty: np.ndarray
+    boundary_measure: np.ndarray | None
     toggle_count: np.ndarray
     realized_toggle_count: np.ndarray
     first_realized_iter: np.ndarray
     last_realized_iter: np.ndarray
     marginal: np.ndarray
+    status: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class SelfConsistentPowerFitResult:
+    constraints: PairBisectorConstraints
     fit: PowerWeightFitResult
     realized: RealizedPairDiagnostics
     diagnostics: PairConstraintDiagnostics
@@ -86,6 +97,9 @@ class SelfConsistentPowerFitResult:
     ]
     cycle_length: int | None
     marginal_constraints: tuple[int, ...]
+    rms_residual_all: float
+    max_residual_all: float
+    tessellation_diagnostics: TessellationDiagnostics | None
     history: tuple[ActiveSetIteration, ...] | None
     warnings: tuple[str, ...]
 
@@ -114,6 +128,8 @@ def solve_self_consistent_power_weights(
     return_history: bool = False,
     return_cells: bool = False,
     return_boundary_measure: bool = False,
+    return_tessellation_diagnostics: bool = False,
+    tessellation_check: Literal['none', 'diagnose', 'warn', 'raise'] = 'diagnose',
 ) -> SelfConsistentPowerFitResult:
     """Iteratively refine an active pair set against realized power-diagram faces."""
 
@@ -186,22 +202,16 @@ def solve_self_consistent_power_weights(
         if fit.weights is None:
             warnings_list.extend(fit.warnings)
             termination = 'infeasible_active_set'
-            final_realized = RealizedPairDiagnostics(
-                realized=np.zeros(m, dtype=bool),
-                unrealized=tuple(range(m)),
-                realized_same_shift=np.zeros(m, dtype=bool),
-                realized_other_shift=np.zeros(m, dtype=bool),
-                realized_shifts=tuple(() for _ in range(m)),
-                endpoint_i_empty=np.zeros(m, dtype=bool),
-                endpoint_j_empty=np.zeros(m, dtype=bool),
-                boundary_measure=(
-                    np.full(m, np.nan, dtype=np.float64)
-                    if return_boundary_measure
-                    else None
-                ),
-                cells=None,
+            final_realized = _empty_realized_pair_diagnostics(
+                m,
+                return_boundary_measure=return_boundary_measure,
             )
             diag_all = PairConstraintDiagnostics(
+                site_i=resolved.i.copy(),
+                site_j=resolved.j.copy(),
+                shift=resolved.shifts.copy(),
+                target=resolved.target.copy(),
+                confidence=resolved.confidence.copy(),
                 predicted=np.full(m, np.nan, dtype=np.float64),
                 predicted_fraction=np.full(m, np.nan, dtype=np.float64),
                 predicted_position=np.full(m, np.nan, dtype=np.float64),
@@ -210,13 +220,22 @@ def solve_self_consistent_power_weights(
                 realized=final_realized.realized.copy(),
                 realized_same_shift=final_realized.realized_same_shift.copy(),
                 realized_other_shift=final_realized.realized_other_shift.copy(),
+                endpoint_i_empty=final_realized.endpoint_i_empty.copy(),
+                endpoint_j_empty=final_realized.endpoint_j_empty.copy(),
+                boundary_measure=(
+                    None
+                    if final_realized.boundary_measure is None
+                    else final_realized.boundary_measure.copy()
+                ),
                 toggle_count=toggle_count.copy(),
                 realized_toggle_count=realized_toggle_count.copy(),
                 first_realized_iter=first_realized_iter.copy(),
                 last_realized_iter=last_realized_iter.copy(),
                 marginal=np.zeros(m, dtype=bool),
+                status=tuple('infeasible_active_set' for _ in range(m)),
             )
             return SelfConsistentPowerFitResult(
+                constraints=resolved,
                 fit=fit,
                 realized=final_realized,
                 diagnostics=diag_all,
@@ -226,6 +245,9 @@ def solve_self_consistent_power_weights(
                 termination=termination,
                 cycle_length=None,
                 marginal_constraints=tuple(),
+                rms_residual_all=float('nan'),
+                max_residual_all=float('nan'),
+                tessellation_diagnostics=None,
                 history=tuple(history_rows) if return_history else None,
                 warnings=tuple(warnings_list),
             )
@@ -250,6 +272,8 @@ def solve_self_consistent_power_weights(
             constraints=resolved,
             return_boundary_measure=False,
             return_cells=False,
+            return_tessellation_diagnostics=False,
+            tessellation_check='none',
         )
         last_diag = diag
         realized_same = diag.realized_same_shift
@@ -356,6 +380,8 @@ def solve_self_consistent_power_weights(
             constraints=resolved,
             return_boundary_measure=return_boundary_measure,
             return_cells=return_cells,
+            return_tessellation_diagnostics=return_tessellation_diagnostics,
+            tessellation_check=tessellation_check,
         )
         pred_fraction, pred_position, pred = _predict_measurements(final_fit.weights, resolved)
     else:
@@ -364,20 +390,9 @@ def solve_self_consistent_power_weights(
         pred_position = np.full(m, np.nan, dtype=np.float64)
         pred = np.full(m, np.nan, dtype=np.float64)
         if final_realized is None:
-            final_realized = RealizedPairDiagnostics(
-                realized=np.zeros(m, dtype=bool),
-                unrealized=tuple(range(m)),
-                realized_same_shift=np.zeros(m, dtype=bool),
-                realized_other_shift=np.zeros(m, dtype=bool),
-                realized_shifts=tuple(() for _ in range(m)),
-                endpoint_i_empty=np.zeros(m, dtype=bool),
-                endpoint_j_empty=np.zeros(m, dtype=bool),
-                boundary_measure=(
-                    np.full(m, np.nan, dtype=np.float64)
-                    if return_boundary_measure
-                    else None
-                ),
-                cells=None,
+            final_realized = _empty_realized_pair_diagnostics(
+                m,
+                return_boundary_measure=return_boundary_measure,
             )
 
     target = (
@@ -386,12 +401,29 @@ def solve_self_consistent_power_weights(
         else resolved.target_position
     )
     residuals = pred - target
+    rms_residual_all = (
+        float(np.sqrt(np.mean(residuals * residuals))) if residuals.size else 0.0
+    )
+    max_residual_all = float(np.max(np.abs(residuals))) if residuals.size else 0.0
+
     marginal = (toggle_count > 0) | final_realized.realized_other_shift
     if termination == 'cycle_detected':
         marginal = marginal | (realized_toggle_count > 0)
     marginal_constraints = tuple(np.flatnonzero(marginal).tolist())
+    status = _build_constraint_statuses(
+        active=active,
+        realized=final_realized,
+        toggle_count=toggle_count,
+        realized_toggle_count=realized_toggle_count,
+        termination=termination,
+    )
 
     diag_all = PairConstraintDiagnostics(
+        site_i=resolved.i.copy(),
+        site_j=resolved.j.copy(),
+        shift=resolved.shifts.copy(),
+        target=resolved.target.copy(),
+        confidence=resolved.confidence.copy(),
         predicted=pred,
         predicted_fraction=pred_fraction,
         predicted_position=pred_position,
@@ -400,14 +432,23 @@ def solve_self_consistent_power_weights(
         realized=final_realized.realized.copy(),
         realized_same_shift=final_realized.realized_same_shift.copy(),
         realized_other_shift=final_realized.realized_other_shift.copy(),
+        endpoint_i_empty=final_realized.endpoint_i_empty.copy(),
+        endpoint_j_empty=final_realized.endpoint_j_empty.copy(),
+        boundary_measure=(
+            None
+            if final_realized.boundary_measure is None
+            else final_realized.boundary_measure.copy()
+        ),
         toggle_count=toggle_count.copy(),
         realized_toggle_count=realized_toggle_count.copy(),
         first_realized_iter=first_realized_iter.copy(),
         last_realized_iter=last_realized_iter.copy(),
         marginal=marginal.copy(),
+        status=status,
     )
 
     return SelfConsistentPowerFitResult(
+        constraints=resolved,
         fit=final_fit,
         realized=final_realized,
         diagnostics=diag_all,
@@ -417,6 +458,9 @@ def solve_self_consistent_power_weights(
         termination=termination,
         cycle_length=cycle_length,
         marginal_constraints=marginal_constraints,
+        rms_residual_all=rms_residual_all,
+        max_residual_all=max_residual_all,
+        tessellation_diagnostics=final_realized.tessellation_diagnostics,
         history=tuple(history_rows) if return_history else None,
         warnings=tuple(warnings_list),
     )
@@ -437,3 +481,61 @@ def _align_weights_to_reference(
         shift = float(np.mean(aligned[idx] - ref[idx]))
         aligned[idx] -= shift
     return aligned
+
+
+
+def _empty_realized_pair_diagnostics(
+    m: int, *, return_boundary_measure: bool
+) -> RealizedPairDiagnostics:
+    return RealizedPairDiagnostics(
+        realized=np.zeros(m, dtype=bool),
+        unrealized=tuple(range(m)),
+        realized_same_shift=np.zeros(m, dtype=bool),
+        realized_other_shift=np.zeros(m, dtype=bool),
+        realized_shifts=tuple(() for _ in range(m)),
+        endpoint_i_empty=np.zeros(m, dtype=bool),
+        endpoint_j_empty=np.zeros(m, dtype=bool),
+        boundary_measure=(
+            np.full(m, np.nan, dtype=np.float64) if return_boundary_measure else None
+        ),
+        cells=None,
+        tessellation_diagnostics=None,
+    )
+
+
+
+def _build_constraint_statuses(
+    *,
+    active: np.ndarray,
+    realized: RealizedPairDiagnostics,
+    toggle_count: np.ndarray,
+    realized_toggle_count: np.ndarray,
+    termination: str,
+) -> tuple[str, ...]:
+    rows: list[str] = []
+    for k in range(active.shape[0]):
+        if termination == 'cycle_detected' and (
+            bool(toggle_count[k] > 0) or bool(realized_toggle_count[k] > 0)
+        ):
+            rows.append('cycle_member')
+            continue
+        if bool(realized.realized_other_shift[k]):
+            rows.append('realized_other_shift')
+            continue
+        if bool(realized.endpoint_i_empty[k] or realized.endpoint_j_empty[k]):
+            rows.append('endpoint_empty')
+            continue
+        if bool(active[k]) and bool(realized.realized_same_shift[k]):
+            rows.append('toggled_active' if bool(toggle_count[k] > 0) else 'stable_active')
+            continue
+        if (not bool(active[k])) and (not bool(realized.realized[k])):
+            rows.append('toggled_inactive' if bool(toggle_count[k] > 0) else 'stable_inactive')
+            continue
+        if bool(active[k]) and (not bool(realized.realized_same_shift[k])):
+            rows.append('active_unrealized')
+            continue
+        if (not bool(active[k])) and bool(realized.realized_same_shift[k]):
+            rows.append('inactive_realized')
+            continue
+        rows.append('unresolved')
+    return tuple(rows)

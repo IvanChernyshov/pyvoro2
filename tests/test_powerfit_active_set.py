@@ -15,6 +15,8 @@ def test_self_consistent_solver_drops_unrealized_pair():
         measurement='fraction',
         domain=domain,
         return_history=True,
+        return_boundary_measure=True,
+        return_tessellation_diagnostics=True,
     )
 
     assert res.termination == 'self_consistent'
@@ -24,6 +26,18 @@ def test_self_consistent_solver_drops_unrealized_pair():
     assert bool(res.realized.realized_same_shift[2]) is False
     assert res.history is not None
     assert len(res.history) >= 1
+    assert res.constraints.n_constraints == 3
+    assert res.tessellation_diagnostics is not None
+    assert res.tessellation_diagnostics.ok is True
+    assert np.isfinite(res.rms_residual_all)
+    assert np.isfinite(res.max_residual_all)
+    assert np.array_equal(res.diagnostics.site_i, np.array([0, 1, 0]))
+    assert np.array_equal(res.diagnostics.site_j, np.array([1, 2, 2]))
+    assert res.diagnostics.boundary_measure is not None
+    assert res.diagnostics.status[0] == 'stable_active'
+    assert res.diagnostics.status[1] == 'stable_active'
+    assert res.diagnostics.status[2] in {'toggled_inactive', 'stable_inactive'}
+
 
 
 def test_self_consistent_solver_can_start_from_empty_active_set():
@@ -43,3 +57,4 @@ def test_self_consistent_solver_can_start_from_empty_active_set():
     assert res.termination == 'self_consistent'
     assert bool(res.active_mask[0]) is True
     assert bool(res.realized.realized_same_shift[0]) is True
+    assert res.diagnostics.status == ('toggled_active',)

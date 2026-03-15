@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
 from ._powerfit_constraints import PairBisectorConstraints
 from .api import compute
+from .diagnostics import TessellationDiagnostics
 from .domains import Box, OrthorhombicCell, PeriodicCell
 from .face_properties import annotate_face_properties
 
@@ -26,6 +27,7 @@ class RealizedPairDiagnostics:
     endpoint_j_empty: np.ndarray
     boundary_measure: np.ndarray | None
     cells: list[dict[str, Any]] | None
+    tessellation_diagnostics: TessellationDiagnostics | None
 
 
 
@@ -37,8 +39,15 @@ def match_realized_pairs(
     constraints: PairBisectorConstraints,
     return_boundary_measure: bool = False,
     return_cells: bool = False,
+    return_tessellation_diagnostics: bool = False,
+    tessellation_check: Literal['none', 'diagnose', 'warn', 'raise'] = 'diagnose',
 ) -> RealizedPairDiagnostics:
-    """Determine which resolved pair constraints correspond to realized faces."""
+    """Determine which resolved pair constraints correspond to realized faces.
+
+    The matching is purely geometric: each requested ordered pair ``(i, j, shift)``
+    is checked against the set of realized faces in the power tessellation,
+    including explicit periodic image shifts.
+    """
 
     pts = np.asarray(points, dtype=float)
     if pts.ndim != 2 or pts.shape[1] != 3:
@@ -50,7 +59,7 @@ def match_realized_pairs(
         isinstance(domain, OrthorhombicCell) and any(domain.periodic)
     )
 
-    cells = compute(
+    compute_result = compute(
         pts,
         domain=domain,
         mode='power',
@@ -60,7 +69,14 @@ def match_realized_pairs(
         return_adjacency=False,
         return_face_shifts=bool(periodic),
         include_empty=True,
+        return_diagnostics=return_tessellation_diagnostics,
+        tessellation_check=tessellation_check,
     )
+    if return_tessellation_diagnostics:
+        cells, tessellation_diagnostics = compute_result
+    else:
+        cells = compute_result
+        tessellation_diagnostics = None
 
     if return_boundary_measure:
         annotate_face_properties(cells, domain)
@@ -148,4 +164,5 @@ def match_realized_pairs(
         endpoint_j_empty=endpoint_j_empty,
         boundary_measure=boundary_measure,
         cells=cells if return_cells else None,
+        tessellation_diagnostics=tessellation_diagnostics,
     )

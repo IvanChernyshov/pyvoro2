@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 The format is based on *Keep a Changelog*, and this project follows *Semantic Versioning*.
 
+## [0.5.0] - 2026-03-14
+
+### Added
+
+- New `pyvoro2.powerfit` API for inverse power fitting from generic pairwise bisector constraints.
+- `resolve_pair_bisector_constraints(...)` as a reusable low-level constraint-resolution primitive.
+- `fit_power_weights(...)` with configurable mismatch, hard feasibility, soft penalties, and explicit infeasibility reporting.
+- `match_realized_pairs(...)` for purely geometric realized-face matching with optional tessellation diagnostics.
+- `solve_self_consistent_power_weights(...)` for hysteretic active-set refinement driven by realized faces.
+- Rich per-constraint diagnostics, marginal-pair reporting, and optional final tessellation diagnostics.
+
+### Changed
+
+- The inverse-fitting surface is now math-oriented and chemistry-agnostic.
+- Documentation and examples now describe the unified power-fitting workflow.
+
 ## [0.4.2] - 2026-03-04
 
 ### Changed

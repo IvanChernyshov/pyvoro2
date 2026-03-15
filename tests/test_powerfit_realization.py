@@ -36,6 +36,7 @@ def test_match_realized_pairs_flags_unrealized_constraints():
     assert diag.unrealized == (0,)
 
 
+
 def test_match_realized_pairs_reports_boundary_measure_when_requested():
     from pyvoro2 import (
         Box,
@@ -65,3 +66,34 @@ def test_match_realized_pairs_reports_boundary_measure_when_requested():
     assert diag.boundary_measure is not None
     assert np.isfinite(diag.boundary_measure[0])
     assert diag.boundary_measure[0] > 0.0
+
+
+
+def test_match_realized_pairs_can_return_tessellation_diagnostics():
+    from pyvoro2 import (
+        Box,
+        fit_power_weights,
+        match_realized_pairs,
+        resolve_pair_bisector_constraints,
+    )
+
+    pts = np.array([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]], dtype=float)
+    domain = Box(((-5, 5), (-5, 5), (-5, 5)))
+    constraints = resolve_pair_bisector_constraints(
+        pts,
+        [(0, 1, 0.5)],
+        measurement='fraction',
+        domain=domain,
+    )
+    fit = fit_power_weights(pts, constraints)
+    diag = match_realized_pairs(
+        pts,
+        domain=domain,
+        radii=fit.radii,
+        constraints=constraints,
+        return_tessellation_diagnostics=True,
+    )
+
+    assert diag.tessellation_diagnostics is not None
+    assert diag.tessellation_diagnostics.n_cells_returned == 2
+    assert diag.tessellation_diagnostics.ok is True

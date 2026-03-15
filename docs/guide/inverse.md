@@ -1,121 +1,235 @@
-# Inverse fitting (weights/radii from desired planes)
+# Power fitting from pairwise bisector constraints
 
-In many applications you do not start from “a tessellation”, but from a
-**reference model** that tells you where the interfaces between pairs of sites
-*should* be.
+`pyvoro2` can solve the inverse problem for **power / Laguerre tessellations**:
+fit auxiliary power weights so that selected pairwise separators land at desired
+locations along the connector between two sites.
 
-Examples include:
+The API is intentionally **geometry-first** and **domain-agnostic**.
+Downstream code decides:
 
-- atom-in-molecule partitions (chemistry)
-- promolecular or model density partitions
-- custom interface placements used as a geometric descriptor
+- which site pairs are candidates,
+- which periodic image shift belongs to each pair,
+- the target separator location for each pair,
+- and any per-constraint confidence.
 
-pyvoro2 provides tools to fit a **power/Laguerre tessellation** so that the
-resulting pairwise bisector planes match a set of desired locations **as well as possible**.
-The output is still a mathematically standard power diagram, so it always forms a valid tessellation.
+`pyvoro2` then provides the mathematical pieces:
 
-## Power bisector position along a line
+- resolve and validate pair constraints,
+- fit power weights under a configurable convex model,
+- compute the resulting power tessellation,
+- detect which constraints correspond to realized faces,
+- and optionally refine an active set to self-consistency.
 
-In a power diagram, each site $p_i$ carries a weight $w_i$ (in pyvoro2 you normally work with
-radii $r_i$ where $w_i=r_i^2$). The bisector between two sites satisfies:
+## Geometry of one pair
+
+For a pair of sites `i` and `j`, choose one specific image of `j` and call it
+`j*`. Let
+
+- `d = ||p_j* - p_i||`,
+- `z = w_i - w_j`,
+
+where `w` are the fitted power weights.
+
+Then the separator position along the connector is affine in `z`:
 
 $$
-\lVert x-p_i \rVert^2 - w_i = \lVert x-p_j \rVert^2 - w_j.
+ t(z) = \frac{1}{2} + \frac{z}{2 d^2}
 $$
 
-Choose a specific periodic image of $j$ (if you are in a periodic domain) and denote it by $p_j^*$.
-Along the line from $p_i$ to $p_j^*$, the bisector intersects at a fractional position $t$:
+for normalized fraction, and
 
 $$
- t(w) = \frac{1}{2} + \frac{w_i - w_j}{2 d^2},
- \qquad d = \lVert p_j^* - p_i \rVert.
+ x(z) = \frac{d}{2} + \frac{z}{2 d}
 $$
 
-- $t=0$ means “at $p_i$”,
-- $t=1$ means “at $p_j^*$”,
-- values outside $[0,1]$ are allowed and can occur naturally in power diagrams.
+for absolute position measured from site `i`.
 
-## Fitting API
+This is why `pyvoro2` exposes the measurement type explicitly: a loss in
+fraction-space and a loss in position-space are **different optimization
+problems**.
 
-Two convenience functions are provided:
-
-- `fit_power_weights_from_plane_fractions(...)` — you provide target fractions $t_{\mathrm{target}}$
-- `fit_power_weights_from_plane_positions(...)` — you provide target distances $x$ from $p_i$ along the $i\to j$ line
-
-Constraints are given as a list of tuples:
-
-- `(i, j, t)` or `(i, j, t, shift)`
-- `(i, j, x)` or `(i, j, x, shift)`
-
-where `shift=(na, nb, nc)` specifies which periodic image of $j$ should be used.
-
-If you omit the shift in a periodic domain, pyvoro2 can (optionally) choose a “nearest image”.
-
-## Restricting where the *predicted* bisector can go
-
-Sometimes you want the *target* to be outside the segment (e.g. as a modeling choice), but you do not
-want the fitted solution to place the bisector too far outside. In other cases you want to enforce
-that the bisector lies strictly between the two sites.
-
-pyvoro2 supports three regimes for the **predicted** $t(w)$:
-
-- `t_bounds_mode='none'` — no restriction
-- `t_bounds_mode='soft_quadratic'` — add a quadratic penalty for leaving an interval
-- `t_bounds_mode='hard'` — enforce hard bounds (infeasible values are forbidden)
-
-In addition, you can add a near-boundary repulsion:
-
-- `t_near_penalty='exp'`
-
-which discourages $t(w)$ from approaching the bounds too closely.
-
-These options make the fit a small convex optimization problem that pyvoro2 solves in pure NumPy.
-
-## Radii gauge and `r_min`
-
-Power diagrams are invariant under adding a constant to all weights.
-After fitting weights, pyvoro2 chooses a global shift so that the derived radii satisfy:
-
-- `min(radii) == r_min`
-
-This is useful if you want radii that are never exactly zero.
-
-## “Inactive” constraints (pairs that are not a face)
-
-A constraint between $(i,j)$ refers to a bisector plane, but in a full tessellation that plane becomes
-an actual **cell face** only if $i$ and $j$ end up as neighbors.
-
-If you pass `check_contacts=True`, pyvoro2 will compute a tessellation using the fitted radii and report
-which constraints became real neighbor faces.
-
-This is often enough for practical workflows, and it is also a stepping stone to iterative schemes
-(where you refit only on active neighbor pairs).
-
-## Typical workflow
-
-1) Fit weights/radii from constraints
-2) Compute a power tessellation with the fitted radii
+## Step 1: resolve pair constraints once
 
 ```python
+import numpy as np
 import pyvoro2 as pv
 
-res = pv.fit_power_weights_from_plane_fractions(
-    points,
-    constraints,
-    domain=cell,
-    t_bounds=(0.0, 1.0),
-    t_bounds_mode='hard',
-    t_near_penalty='exp',
-    r_min=1.0,
-    check_contacts=True,
-)
+points = np.array([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]], dtype=float)
+box = pv.Box(((-5, 5), (-5, 5), (-5, 5)))
 
-cells = pv.compute(
+constraints = pv.resolve_pair_bisector_constraints(
     points,
-    domain=cell,
-    mode='power',
-    radii=res.radii,
-    include_empty=True,
-    return_face_shifts=True,
+    [(0, 1, 0.25)],
+    measurement='fraction',
+    domain=box,
 )
 ```
+
+Each raw tuple is `(i, j, value[, shift])`, where `shift=(na, nb, nc)` is the
+integer lattice image applied to site `j`.
+
+The resolved object stores the validated pair indices, shifts, connector
+geometry, and targets in both fraction and position form.
+
+## Step 2: define the fitting model
+
+```python
+model = pv.FitModel(
+    mismatch=pv.SquaredLoss(),
+    feasible=pv.Interval(0.0, 1.0),
+    penalties=(
+        pv.ExponentialBoundaryPenalty(
+            lower=0.0,
+            upper=1.0,
+            margin=0.05,
+            strength=1.0,
+            tau=0.01,
+        ),
+    ),
+)
+```
+
+The model separates three ideas:
+
+- `mismatch=`: how target-vs-predicted separator locations are scored,
+- `feasible=`: hard admissible sets such as an interval or fixed value,
+- `penalties=`: soft penalties such as outside-interval or near-boundary
+  repulsion.
+
+Built-in pieces currently include:
+
+- `SquaredLoss()`
+- `HuberLoss(delta=...)`
+- `Interval(lower, upper)`
+- `FixedValue(value)`
+- `SoftIntervalPenalty(lower, upper, strength=...)`
+- `ExponentialBoundaryPenalty(...)`
+- `ReciprocalBoundaryPenalty(...)`
+- `L2Regularization(...)`
+
+## Step 3: fit power weights
+
+```python
+fit = pv.fit_power_weights(
+    points,
+    constraints,
+    model=model,
+    r_min=1.0,
+)
+```
+
+The result contains:
+
+- fitted `weights` and shifted `radii`,
+- predicted separator locations in both fraction and position form,
+- residuals in the chosen measurement space,
+- solver/termination metadata,
+- and explicit infeasibility reporting for contradictory hard constraints.
+
+For example, if hard interval or equality restrictions cannot all hold
+simultaneously, the fit returns:
+
+- `status == 'infeasible_hard_constraints'`
+- `hard_feasible == False`
+- `weights is None`
+
+instead of pretending the issue is merely slow convergence.
+
+## Step 4: check which pairs are actually realized
+
+A requested pairwise separator is not automatically a realized face in the full
+power tessellation. After fitting, you can ask which requested pairs became real
+neighbors.
+
+```python
+realized = pv.match_realized_pairs(
+    points,
+    domain=box,
+    radii=fit.radii,
+    constraints=constraints,
+    return_boundary_measure=True,
+    return_tessellation_diagnostics=True,
+)
+```
+
+This returns purely geometric diagnostics:
+
+- whether each pair is realized at all,
+- whether it is realized with the **same** requested periodic shift,
+- whether only some **other** image is realized,
+- whether one of the endpoint cells is empty,
+- an optional boundary measure of the matched face,
+- and optional tessellation-wide diagnostics.
+
+## Step 5: solve the self-consistent active-set problem
+
+For sparse or noisy candidate sets, the useful high-level workflow is often:
+
+1. fit on a current active set,
+2. run the actual power tessellation,
+3. keep or re-add only the constraints whose pairs are realized,
+4. repeat until active and realized sets agree.
+
+`pyvoro2` provides this as:
+
+```python
+result = pv.solve_self_consistent_power_weights(
+    points,
+    constraints,
+    domain=box,
+    model=model,
+    options=pv.ActiveSetOptions(
+        add_after=1,
+        drop_after=2,
+        relax=0.5,
+        max_iter=25,
+        cycle_window=8,
+    ),
+    return_history=True,
+    return_boundary_measure=True,
+    return_tessellation_diagnostics=True,
+)
+```
+
+The solver is generic:
+
+- it never invents candidate pairs,
+- it never silently changes the user-supplied periodic image,
+- it uses realized faces rather than any domain-specific contact logic,
+- it supports hysteresis, under-relaxation, cycle detection, and marginal-pair
+  reporting.
+
+## Reading the final diagnostics
+
+`solve_self_consistent_power_weights(...)` returns both a final low-level fit and
+rich per-constraint diagnostics.
+
+Useful fields include:
+
+- `result.constraints`: the resolved pair set used throughout the solve,
+- `result.active_mask`: final active-set membership,
+- `result.realized`: realized-face matching diagnostics,
+- `result.diagnostics`: per-constraint targets, predictions, residuals,
+  endpoint-empty flags, boundary measure, toggle counts, and generic status
+  labels,
+- `result.rms_residual_all` / `result.max_residual_all`: summaries over **all**
+  candidate constraints,
+- `result.tessellation_diagnostics`: final tessellation-wide checks,
+- `result.marginal_constraints`: indices of toggling / cycle / wrong-shift pairs.
+
+Status labels are intentionally generic, for example:
+
+- `stable_active`
+- `stable_inactive`
+- `toggled_active`
+- `toggled_inactive`
+- `realized_other_shift`
+- `active_unrealized`
+- `cycle_member`
+
+## Current scope
+
+The current implementation is 3D because it builds on the existing Voro++-based
+power tessellation core. The **API vocabulary** is already dimension-safe:
+constraint fitting is phrased in terms of pairwise separators and boundary
+measure rather than chemistry-specific or 3D-only semantics.

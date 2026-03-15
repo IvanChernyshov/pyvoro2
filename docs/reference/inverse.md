@@ -1,4 +1,4 @@
-# Inverse fitting
+# Power fitting API
 
-::: pyvoro2.inverse
+::: pyvoro2.powerfit
 :::
