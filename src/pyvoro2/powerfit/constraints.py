@@ -18,6 +18,24 @@ def _plain_value(value: object) -> object:
     return value.item() if hasattr(value, 'item') else value
 
 
+def _validated_ids_array(ids: Sequence[int] | np.ndarray, n_points: int) -> np.ndarray:
+    """Return validated external ids as a 1D NumPy array.
+
+    The power-fit layer uses ids only as external labels and for mapping raw
+    constraint tuples when ``index_mode='id'``. The ids must therefore match
+    the point array length and be unique.
+    """
+
+    if len(ids) != n_points:
+        raise ValueError('ids must have length n_points')
+    ids_arr = np.asarray(ids)
+    if ids_arr.shape != (n_points,):
+        raise ValueError('ids must be a 1D sequence of length n_points')
+    if np.unique(ids_arr).size != n_points:
+        raise ValueError('ids must be unique')
+    return ids_arr
+
+
 @dataclass(frozen=True, slots=True)
 class PairBisectorConstraints:
     """Resolved pairwise separator constraints.
@@ -67,6 +85,34 @@ class PairBisectorConstraints:
             raise ValueError('PairBisectorConstraints.delta must have shape (m, 3)')
         if self.measurement not in ('fraction', 'position'):
             raise ValueError('measurement must be "fraction" or "position"')
+        for name in (
+            'target',
+            'confidence',
+            'distance',
+            'distance2',
+            'delta',
+            'target_fraction',
+            'target_position',
+        ):
+            arr = np.asarray(getattr(self, name))
+            if not np.all(np.isfinite(arr)):
+                raise ValueError(
+                    f'PairBisectorConstraints.{name} must contain only finite values'
+                )
+        if np.any(self.confidence < 0.0):
+            raise ValueError('PairBisectorConstraints.confidence must be non-negative')
+        if np.any(self.distance <= 0.0) or np.any(self.distance2 <= 0.0):
+            raise ValueError(
+                'PairBisectorConstraints distances must be strictly positive'
+            )
+        if self.ids is not None:
+            ids_arr = np.asarray(self.ids)
+            if ids_arr.shape != (int(self.n_points),):
+                raise ValueError(
+                    'PairBisectorConstraints.ids must have shape (n_points,)'
+                )
+            if np.unique(ids_arr).size != int(self.n_points):
+                raise ValueError('PairBisectorConstraints.ids must be unique')
 
     @property
     def n_constraints(self) -> int:
@@ -173,16 +219,24 @@ def resolve_pair_bisector_constraints(
     pts = np.asarray(points, dtype=float)
     if pts.ndim != 2 or pts.shape[1] != 3:
         raise ValueError('points must have shape (n, 3)')
+    if not np.all(np.isfinite(pts)):
+        raise ValueError('points must contain only finite values')
     if measurement not in ('fraction', 'position'):
         raise ValueError('measurement must be "fraction" or "position"')
+
+    ids_arr = None if ids is None else _validated_ids_array(ids, int(pts.shape[0]))
 
     i_idx, j_idx, target, shifts, shift_given, warnings = _parse_constraints(
         constraints,
         n_points=pts.shape[0],
-        ids=ids,
+        ids=ids_arr,
         index_mode=index_mode,
         allow_empty=allow_empty,
     )
+
+    target_arr = np.asarray(target, dtype=np.float64)
+    if not np.all(np.isfinite(target_arr)):
+        raise ValueError('constraint values must contain only finite values')
 
     m = int(i_idx.shape[0])
     if confidence is None:
@@ -191,6 +245,8 @@ def resolve_pair_bisector_constraints(
         omega = np.asarray(confidence, dtype=float)
         if omega.shape != (m,):
             raise ValueError('confidence must have shape (m,)')
+        if not np.all(np.isfinite(omega)):
+            raise ValueError('confidence must contain only finite values')
         if np.any(omega < 0):
             raise ValueError('confidence must be non-negative')
 
@@ -208,7 +264,6 @@ def resolve_pair_bisector_constraints(
     warnings = warnings + warnings2
 
     if m == 0:
-        ids_arr = None if ids is None else np.asarray(ids)
         zeros_i = np.zeros(0, dtype=np.int64)
         zeros_f = np.zeros(0, dtype=np.float64)
         zeros_s = np.zeros((0, 3), dtype=np.int64)
@@ -242,15 +297,12 @@ def resolve_pair_bisector_constraints(
         )
     d = np.sqrt(d2)
 
-    target_arr = np.asarray(target, dtype=np.float64)
     if measurement == 'fraction':
         target_fraction = target_arr.copy()
         target_position = target_fraction * d
     else:
         target_position = target_arr.copy()
         target_fraction = target_position / d
-
-    ids_arr = None if ids is None else np.asarray(ids)
 
     return PairBisectorConstraints(
         n_points=int(pts.shape[0]),

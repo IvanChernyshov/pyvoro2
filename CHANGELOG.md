@@ -4,6 +4,27 @@ All notable changes to this project are documented in this file.
 
 The format is based on *Keep a Changelog*, and this project follows *Semantic Versioning*.
 
+## [0.5.1] - 2026-03-15
+
+
+### Added
+
+- `tools/install_wheel_overlay.py` to support a wheel-core + repository-source
+  development workflow, so the compiled extension can come from an installed
+  wheel while Python imports resolve to `src/pyvoro2`.
+
+### Fixed
+
+- Power-fit input validation now rejects non-finite point coordinates,
+  constraint values, confidence weights, and non-finite radius/weight
+  conversion inputs.
+- `resolve_pair_bisector_constraints(...)` now validates external `ids`
+  consistently, including shape/length and uniqueness checks.
+- The quadratic/analytic power-fit solver no longer crashes on zero-confidence
+  constraints that would otherwise create singular gauge coupling.
+- Empty resolved constraint sets now respect L2 regularization and return the
+  regularization-only solution instead of silently dropping the reference.
+
 ## [0.5.0] - 2026-03-14
 
 ### Added

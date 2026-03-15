@@ -213,6 +213,8 @@ def radii_to_weights(radii: np.ndarray) -> np.ndarray:
     r = np.asarray(radii, dtype=float)
     if r.ndim != 1:
         raise ValueError('radii must be 1D')
+    if not np.all(np.isfinite(r)):
+        raise ValueError('radii must contain only finite values')
     if np.any(r < 0):
         raise ValueError('radii must be non-negative')
     return r * r
@@ -226,6 +228,8 @@ def weights_to_radii(
     w = np.asarray(weights, dtype=float)
     if w.ndim != 1:
         raise ValueError('weights must be 1D')
+    if not np.all(np.isfinite(w)):
+        raise ValueError('weights must contain only finite values')
     r_min = float(r_min)
     if r_min < 0:
         raise ValueError('r_min must be >= 0')
@@ -375,9 +379,15 @@ def _fit_power_weights_resolved(
         conflict = None
 
     if m == 0:
-        weights = np.zeros(n, dtype=np.float64)
+        if lam > 0.0:
+            weights = w0.copy()
+            warnings_list.append(
+                'empty constraint set; using the regularization-only solution'
+            )
+        else:
+            weights = np.zeros(n, dtype=np.float64)
+            warnings_list.append('empty constraint set; returning zero weights')
         radii, shift = weights_to_radii(weights, r_min=r_min)
-        warnings_list.append('empty constraint set; returning zero weights')
         pred_fraction = np.zeros(0, dtype=np.float64)
         pred_position = np.zeros(0, dtype=np.float64)
         pred = pred_fraction if constraints.measurement == 'fraction' else pred_position
@@ -416,10 +426,23 @@ def _fit_power_weights_resolved(
             'or non-quadratic penalties'
         )
 
-    comps = _connected_components(n, constraints.i, constraints.j)
+    if solver_eff == 'analytic' and lam == 0.0:
+        effective_mask = a > 0.0
+        comps = _connected_components(
+            n,
+            constraints.i[effective_mask],
+            constraints.j[effective_mask],
+        )
+        if np.any(~effective_mask):
+            warnings_list.append(
+                'zero-confidence constraints do not affect the quadratic fit '
+                'objective and are ignored for gauge connectivity'
+            )
+    else:
+        comps = _connected_components(n, constraints.i, constraints.j)
     if len(comps) > 1 and lam == 0.0:
         warnings_list.append(
-            'constraint graph has multiple connected components; '
+            'effective constraint graph has multiple connected components; '
             'each component is gauge-fixed independently'
         )
 
