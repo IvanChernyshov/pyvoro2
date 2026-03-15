@@ -88,7 +88,13 @@ nav:
       - Duplicate check: reference/duplicates.md
       - Normalization: reference/normalize.md
       - Face properties: reference/face_properties.md
-      - Power fitting: reference/powerfit.md
+      - Power fitting:
+          - Overview: reference/powerfit/index.md
+          - Constraints: reference/powerfit/constraints.md
+          - Objective models: reference/powerfit/model.md
+          - Solver: reference/powerfit/solver.md
+          - Realization: reference/powerfit/realize.md
+          - Active set: reference/powerfit/active.md
       - Visualization: reference/viz3d.md
   - Project:
       - About: project/about.md

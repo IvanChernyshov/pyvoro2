@@ -7,8 +7,8 @@ from typing import Literal
 
 import numpy as np
 
-from ._powerfit_constraints import PairBisectorConstraints, resolve_pair_bisector_constraints
-from ._powerfit_model import (
+from .constraints import PairBisectorConstraints, resolve_pair_bisector_constraints
+from .model import (
     ExponentialBoundaryPenalty,
     FitModel,
     FixedValue,
@@ -20,7 +20,7 @@ from ._powerfit_model import (
     SoftIntervalPenalty,
     SquaredLoss,
 )
-from .domains import Box, OrthorhombicCell, PeriodicCell
+from ..domains import Box, OrthorhombicCell, PeriodicCell
 
 
 @dataclass(frozen=True, slots=True)

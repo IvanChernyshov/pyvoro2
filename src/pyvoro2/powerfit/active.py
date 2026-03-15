@@ -7,18 +7,18 @@ from typing import Literal
 
 import numpy as np
 
-from ._powerfit_constraints import PairBisectorConstraints, resolve_pair_bisector_constraints
-from ._powerfit_model import FitModel
-from ._powerfit_realize import RealizedPairDiagnostics, match_realized_pairs
-from ._powerfit_solver import (
+from .constraints import PairBisectorConstraints, resolve_pair_bisector_constraints
+from .model import FitModel
+from .realize import RealizedPairDiagnostics, match_realized_pairs
+from .solver import (
     PowerWeightFitResult,
     _connected_components,
     _predict_measurements,
     fit_power_weights,
     weights_to_radii,
 )
-from .diagnostics import TessellationDiagnostics
-from .domains import Box, OrthorhombicCell, PeriodicCell
+from ..diagnostics import TessellationDiagnostics
+from ..domains import Box, OrthorhombicCell, PeriodicCell
 
 
 @dataclass(frozen=True, slots=True)

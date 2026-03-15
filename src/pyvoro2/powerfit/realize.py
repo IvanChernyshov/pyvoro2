@@ -7,11 +7,11 @@ from typing import Any, Literal
 
 import numpy as np
 
-from ._powerfit_constraints import PairBisectorConstraints
-from .api import compute
-from .diagnostics import TessellationDiagnostics
-from .domains import Box, OrthorhombicCell, PeriodicCell
-from .face_properties import annotate_face_properties
+from .constraints import PairBisectorConstraints
+from ..api import compute
+from ..diagnostics import TessellationDiagnostics
+from ..domains import Box, OrthorhombicCell, PeriodicCell
+from ..face_properties import annotate_face_properties
 
 
 @dataclass(frozen=True, slots=True)

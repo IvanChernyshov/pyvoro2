@@ -1,4 +1,4 @@
-# Power fitting API
+# Power fitting package
 
 ::: pyvoro2.powerfit
 :::

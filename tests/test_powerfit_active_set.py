@@ -140,9 +140,9 @@ def test_self_consistent_solver_reports_realized_other_shift_for_periodic_pair()
 
 
 def test_self_consistent_solver_detects_active_mask_cycle(monkeypatch):
-    import pyvoro2._powerfit_active as active_mod
+    import pyvoro2.powerfit.active as active_mod
     from pyvoro2 import ActiveSetOptions, Box
-    from pyvoro2._powerfit_realize import RealizedPairDiagnostics
+    from pyvoro2.powerfit.realize import RealizedPairDiagnostics
 
     pts = np.array(
         [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]],

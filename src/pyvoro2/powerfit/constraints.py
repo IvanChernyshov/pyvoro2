@@ -7,7 +7,7 @@ from typing import Literal, Sequence
 
 import numpy as np
 
-from .domains import Box, OrthorhombicCell, PeriodicCell
+from ..domains import Box, OrthorhombicCell, PeriodicCell
 
 ConstraintInput = Sequence[
     tuple[int, int, float] | tuple[int, int, float, tuple[int, int, int]]
