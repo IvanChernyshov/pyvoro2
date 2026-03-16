@@ -16,7 +16,6 @@ import numpy as np
 from .constraints import PairBisectorConstraints
 from .realize import RealizedPairDiagnostics
 from .solver import HardConstraintConflict, PowerWeightFitResult
-from ..diagnostics import TessellationDiagnostics
 
 
 def _label_nodes(nodes: tuple[int, ...], ids: np.ndarray | None) -> list[object]:
@@ -30,9 +29,7 @@ def _label_nodes(nodes: tuple[int, ...], ids: np.ndarray | None) -> list[object]
     return labeled
 
 
-def _tessellation_record(
-    diagnostics: TessellationDiagnostics | None,
-) -> dict[str, object] | None:
+def _tessellation_record(diagnostics: Any | None) -> dict[str, object] | None:
     if diagnostics is None:
         return None
     issue_rows = []
@@ -45,26 +42,74 @@ def _tessellation_record(
                 'examples': list(issue.examples),
             }
         )
-    return {
-        'n_sites_expected': int(diagnostics.n_sites_expected),
-        'n_cells_returned': int(diagnostics.n_cells_returned),
-        'sum_cell_volume': float(diagnostics.sum_cell_volume),
-        'domain_volume': float(diagnostics.domain_volume),
-        'volume_ratio': float(diagnostics.volume_ratio),
-        'volume_gap': float(diagnostics.volume_gap),
-        'volume_overlap': float(diagnostics.volume_overlap),
-        'missing_ids': [int(value) for value in diagnostics.missing_ids],
-        'empty_ids': [int(value) for value in diagnostics.empty_ids],
-        'face_shift_available': bool(diagnostics.face_shift_available),
-        'reciprocity_checked': bool(diagnostics.reciprocity_checked),
-        'n_faces_total': int(diagnostics.n_faces_total),
-        'n_faces_orphan': int(diagnostics.n_faces_orphan),
-        'n_faces_mismatched': int(diagnostics.n_faces_mismatched),
-        'ok_volume': bool(diagnostics.ok_volume),
-        'ok_reciprocity': bool(diagnostics.ok_reciprocity),
-        'ok': bool(diagnostics.ok),
-        'issues': issue_rows,
-    }
+
+    if hasattr(diagnostics, 'domain_volume'):
+        return {
+            'dimension': 3,
+            'n_sites_expected': int(diagnostics.n_sites_expected),
+            'n_cells_returned': int(diagnostics.n_cells_returned),
+            'sum_cell_measure': float(diagnostics.sum_cell_volume),
+            'domain_measure': float(diagnostics.domain_volume),
+            'measure_ratio': float(diagnostics.volume_ratio),
+            'measure_gap': float(diagnostics.volume_gap),
+            'measure_overlap': float(diagnostics.volume_overlap),
+            'sum_cell_volume': float(diagnostics.sum_cell_volume),
+            'domain_volume': float(diagnostics.domain_volume),
+            'volume_ratio': float(diagnostics.volume_ratio),
+            'volume_gap': float(diagnostics.volume_gap),
+            'volume_overlap': float(diagnostics.volume_overlap),
+            'missing_ids': [int(value) for value in diagnostics.missing_ids],
+            'empty_ids': [int(value) for value in diagnostics.empty_ids],
+            'boundary_shift_available': bool(diagnostics.face_shift_available),
+            'face_shift_available': bool(diagnostics.face_shift_available),
+            'reciprocity_checked': bool(diagnostics.reciprocity_checked),
+            'n_boundaries_total': int(diagnostics.n_faces_total),
+            'n_boundaries_orphan': int(diagnostics.n_faces_orphan),
+            'n_boundaries_mismatched': int(diagnostics.n_faces_mismatched),
+            'n_faces_total': int(diagnostics.n_faces_total),
+            'n_faces_orphan': int(diagnostics.n_faces_orphan),
+            'n_faces_mismatched': int(diagnostics.n_faces_mismatched),
+            'ok_measure': bool(diagnostics.ok_volume),
+            'ok_volume': bool(diagnostics.ok_volume),
+            'ok_reciprocity': bool(diagnostics.ok_reciprocity),
+            'ok': bool(diagnostics.ok),
+            'issues': issue_rows,
+        }
+
+    if hasattr(diagnostics, 'domain_area'):
+        return {
+            'dimension': 2,
+            'n_sites_expected': int(diagnostics.n_sites_expected),
+            'n_cells_returned': int(diagnostics.n_cells_returned),
+            'sum_cell_measure': float(diagnostics.sum_cell_area),
+            'domain_measure': float(diagnostics.domain_area),
+            'measure_ratio': float(diagnostics.area_ratio),
+            'measure_gap': float(diagnostics.area_gap),
+            'measure_overlap': float(diagnostics.area_overlap),
+            'sum_cell_area': float(diagnostics.sum_cell_area),
+            'domain_area': float(diagnostics.domain_area),
+            'area_ratio': float(diagnostics.area_ratio),
+            'area_gap': float(diagnostics.area_gap),
+            'area_overlap': float(diagnostics.area_overlap),
+            'missing_ids': [int(value) for value in diagnostics.missing_ids],
+            'empty_ids': [int(value) for value in diagnostics.empty_ids],
+            'boundary_shift_available': bool(diagnostics.edge_shift_available),
+            'edge_shift_available': bool(diagnostics.edge_shift_available),
+            'reciprocity_checked': bool(diagnostics.reciprocity_checked),
+            'n_boundaries_total': int(diagnostics.n_edges_total),
+            'n_boundaries_orphan': int(diagnostics.n_edges_orphan),
+            'n_boundaries_mismatched': int(diagnostics.n_edges_mismatched),
+            'n_edges_total': int(diagnostics.n_edges_total),
+            'n_edges_orphan': int(diagnostics.n_edges_orphan),
+            'n_edges_mismatched': int(diagnostics.n_edges_mismatched),
+            'ok_measure': bool(diagnostics.ok_area),
+            'ok_area': bool(diagnostics.ok_area),
+            'ok_reciprocity': bool(diagnostics.ok_reciprocity),
+            'ok': bool(diagnostics.ok),
+            'issues': issue_rows,
+        }
+
+    raise TypeError('unsupported tessellation diagnostics object')
 
 
 def _conflict_record(

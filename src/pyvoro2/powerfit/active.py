@@ -17,8 +17,10 @@ from .solver import (
     fit_power_weights,
     weights_to_radii,
 )
-from ..diagnostics import TessellationDiagnostics
-from ..domains import Box, OrthorhombicCell, PeriodicCell
+from ..diagnostics import TessellationDiagnostics as TessellationDiagnostics3D
+from ..domains import Box as Box3D, OrthorhombicCell, PeriodicCell
+from ..planar.diagnostics import TessellationDiagnostics as TessellationDiagnostics2D
+from ..planar.domains import Box as Box2D, RectangularCell
 
 ShiftTuple = tuple[int, ...]
 
@@ -40,12 +42,13 @@ def _boundary_value(values: np.ndarray | None, index: int) -> float | None:
     return float(values[index])
 
 
-def _require_self_consistent_dim_3(constraints: PairBisectorConstraints) -> None:
-    if constraints.dim != 3:
+def _require_self_consistent_supported_dim(
+    constraints: PairBisectorConstraints,
+) -> None:
+    if constraints.dim not in (2, 3):
         raise ValueError(
-            'solve_self_consistent_power_weights currently requires 3D '
-            'resolved constraints because realized-face matching still uses '
-            'the 3D tessellation backend'
+            'solve_self_consistent_power_weights currently supports only 2D '
+            'and 3D resolved constraints'
         )
 
 
@@ -173,7 +176,9 @@ class SelfConsistentPowerFitResult:
     marginal_constraints: tuple[int, ...]
     rms_residual_all: float
     max_residual_all: float
-    tessellation_diagnostics: TessellationDiagnostics | None
+    tessellation_diagnostics: (
+        TessellationDiagnostics2D | TessellationDiagnostics3D | None
+    )
     history: tuple[ActiveSetIteration, ...] | None
     warnings: tuple[str, ...]
 
@@ -196,7 +201,7 @@ def solve_self_consistent_power_weights(
     constraints: PairBisectorConstraints | list[tuple] | tuple[tuple, ...],
     *,
     measurement: Literal['fraction', 'position'] = 'fraction',
-    domain: Box | OrthorhombicCell | PeriodicCell,
+    domain: Box2D | RectangularCell | Box3D | OrthorhombicCell | PeriodicCell,
     ids: list[int] | tuple[int, ...] | np.ndarray | None = None,
     index_mode: Literal['index', 'id'] = 'index',
     image: Literal['nearest', 'given_only'] = 'nearest',
@@ -217,7 +222,8 @@ def solve_self_consistent_power_weights(
     return_tessellation_diagnostics: bool = False,
     tessellation_check: Literal['none', 'diagnose', 'warn', 'raise'] = 'diagnose',
 ) -> SelfConsistentPowerFitResult:
-    """Iteratively refine an active pair set against realized power-diagram faces."""
+    """Iteratively refine an active pair set against realized power-diagram
+    boundaries."""
 
     pts = np.asarray(points, dtype=float)
     if pts.ndim != 2 or pts.shape[1] <= 0:
@@ -234,13 +240,12 @@ def solve_self_consistent_power_weights(
             raise ValueError('resolved constraints do not match the number of points')
         if resolved.dim != pts.shape[1]:
             raise ValueError('resolved constraints do not match the point dimension')
-        _require_self_consistent_dim_3(resolved)
+        _require_self_consistent_supported_dim(resolved)
     else:
-        if pts.shape[1] != 3:
+        if pts.shape[1] not in (2, 3):
             raise ValueError(
-                'solve_self_consistent_power_weights currently requires 3D '
-                'points; lower-dimensional resolved constraints are supported '
-                'only by fit_power_weights for now'
+                'solve_self_consistent_power_weights currently supports only '
+                '2D and 3D points'
             )
         resolved = resolve_pair_bisector_constraints(
             pts,

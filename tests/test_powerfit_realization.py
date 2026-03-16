@@ -156,3 +156,70 @@ def test_realized_pair_diagnostics_export_records():
     assert rows[0]['site_i'] == 11
     assert rows[0]['site_j'] == 22
     assert rows[0]['realized'] is True
+
+
+def test_match_realized_pairs_supports_planar_measure_and_diag() -> None:
+    import pyvoro2.planar as pv2
+    from pyvoro2 import (
+        fit_power_weights,
+        match_realized_pairs,
+        resolve_pair_bisector_constraints,
+    )
+
+    pts = np.array([[0.0, 0.0], [2.0, 0.0]], dtype=float)
+    domain = pv2.Box(((-5.0, 5.0), (-5.0, 5.0)))
+    constraints = resolve_pair_bisector_constraints(
+        pts,
+        [(0, 1, 0.5)],
+        measurement='fraction',
+        domain=domain,
+    )
+    fit = fit_power_weights(pts, constraints)
+    diag = match_realized_pairs(
+        pts,
+        domain=domain,
+        radii=fit.radii,
+        constraints=constraints,
+        return_boundary_measure=True,
+        return_tessellation_diagnostics=True,
+    )
+
+    assert bool(diag.realized[0]) is True
+    assert diag.boundary_measure is not None
+    assert np.isfinite(diag.boundary_measure[0])
+    assert diag.boundary_measure[0] > 0.0
+    assert diag.tessellation_diagnostics is not None
+    assert diag.tessellation_diagnostics.n_cells_returned == 2
+    assert diag.tessellation_diagnostics.ok is True
+
+
+def test_match_realized_pairs_supports_planar_periodic_wrong_shift() -> None:
+    import pyvoro2.planar as pv2
+    from pyvoro2 import (
+        fit_power_weights,
+        match_realized_pairs,
+        resolve_pair_bisector_constraints,
+    )
+
+    cell = pv2.RectangularCell(((0.0, 1.0), (0.0, 1.0)), periodic=(True, True))
+    pts = np.array([[0.1, 0.5], [0.9, 0.5]], dtype=float)
+    constraints = resolve_pair_bisector_constraints(
+        pts,
+        [(0, 1, 0.5, (1, 0))],
+        measurement='fraction',
+        domain=cell,
+        image='given_only',
+    )
+    fit = fit_power_weights(pts, constraints)
+    diag = match_realized_pairs(
+        pts,
+        domain=cell,
+        radii=fit.radii,
+        constraints=constraints,
+    )
+
+    assert bool(diag.realized[0]) is True
+    assert bool(diag.realized_same_shift[0]) is False
+    assert bool(diag.realized_other_shift[0]) is True
+    assert (-1, 0) in diag.realized_shifts[0]
+    assert (1, 0) not in diag.realized_shifts[0]

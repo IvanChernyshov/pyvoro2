@@ -7,11 +7,16 @@ from typing import Literal, Sequence
 
 import numpy as np
 
-from ..domains import Box, OrthorhombicCell, PeriodicCell
 from .._domain_geometry import geometry3d
+from ..domains import Box as Box3D, OrthorhombicCell, PeriodicCell
+from ..planar._domain_geometry import geometry2d
+from ..planar.domains import Box as Box2D, RectangularCell
 
 ConstraintRow = tuple[int, int, float] | tuple[int, int, float, Sequence[int]]
 ConstraintInput = Sequence[ConstraintRow]
+Domain3D = Box3D | OrthorhombicCell | PeriodicCell
+Domain2D = Box2D | RectangularCell
+DomainAny = Domain2D | Domain3D
 
 
 def _plain_value(value: object) -> object:
@@ -67,9 +72,7 @@ class PairBisectorConstraints:
         if self.i.shape != (m,) or self.j.shape != (m,):
             raise ValueError('PairBisectorConstraints.i/j must have shape (m,)')
         if self.shifts.ndim != 2 or self.shifts.shape[0] != m:
-            raise ValueError(
-                'PairBisectorConstraints.shifts must have shape (m, d)'
-            )
+            raise ValueError('PairBisectorConstraints.shifts must have shape (m, d)')
         for name in (
             'target',
             'confidence',
@@ -139,9 +142,7 @@ class PairBisectorConstraints:
             return self.ids[self.i].copy(), self.ids[self.j].copy()
         return self.i.copy(), self.j.copy()
 
-    def to_records(
-        self, *, use_ids: bool = False
-    ) -> tuple[dict[str, object], ...]:
+    def to_records(self, *, use_ids: bool = False) -> tuple[dict[str, object], ...]:
         """Return one plain-Python record per constraint row."""
 
         left, right = self.pair_labels(use_ids=use_ids)
@@ -200,7 +201,7 @@ def resolve_pair_bisector_constraints(
     constraints: ConstraintInput,
     *,
     measurement: Literal['fraction', 'position'] = 'fraction',
-    domain: Box | OrthorhombicCell | PeriodicCell | None = None,
+    domain: DomainAny | None = None,
     ids: Sequence[int] | None = None,
     index_mode: Literal['index', 'id'] = 'index',
     image: Literal['nearest', 'given_only'] = 'nearest',
@@ -211,9 +212,8 @@ def resolve_pair_bisector_constraints(
     """Parse and resolve pairwise separator constraints.
 
     Args:
-        points: Site coordinates with shape ``(n, 3)``. The low-level
-            resolved-constraint object stores the working dimension generically,
-            but raw parsing still targets the current 3D public API.
+        points: Site coordinates with shape ``(n, d)`` where ``d`` is currently
+            supported for planar (2D) and spatial (3D) workflows.
         constraints: Raw constraint tuples ``(i, j, value[, shift])``.
         measurement: Whether ``value`` is interpreted as a normalized fraction
             in ``[0, 1]`` or as an absolute position along the connector.
@@ -223,14 +223,14 @@ def resolve_pair_bisector_constraints(
             external ids.
         image: Shift resolution policy for tuples that do not specify a shift.
         image_search: Search radius for nearest-image resolution in triclinic
-            periodic cells.
+            periodic 3D cells. It is ignored for the current planar backend.
         confidence: Optional non-negative per-constraint weights.
         allow_empty: Allow zero constraints and return an empty resolved object.
     """
 
     pts = np.asarray(points, dtype=float)
-    if pts.ndim != 2 or pts.shape[1] != 3:
-        raise ValueError('points must have shape (n, 3)')
+    if pts.ndim != 2 or pts.shape[1] not in (2, 3):
+        raise ValueError('points must have shape (n, d) with d in {2, 3}')
     if not np.all(np.isfinite(pts)):
         raise ValueError('points must contain only finite values')
     if measurement not in ('fraction', 'position'):
@@ -305,8 +305,7 @@ def resolve_pair_bisector_constraints(
     d2 = np.einsum('mi,mi->m', delta, delta)
     if np.any(d2 <= 0.0):
         raise ValueError(
-            'some constraints have zero distance '
-            '(coincident points/image)'
+            'some constraints have zero distance (coincident points/image)'
         )
     d = np.sqrt(d2)
 
@@ -335,6 +334,7 @@ def resolve_pair_bisector_constraints(
         ids=ids_arr,
         warnings=warnings,
     )
+
 
 # ---------------------------- internal helpers ----------------------------
 
@@ -376,7 +376,7 @@ def _parse_constraints(
     warnings: list[str] = []
 
     for k, c in enumerate(constraints):
-        if not isinstance(c, tuple) and not isinstance(c, list):
+        if not isinstance(c, (tuple, list)):
             raise ValueError(f'constraint {k} must be a tuple/list')
         if len(c) not in (3, 4):
             raise ValueError(
@@ -400,7 +400,7 @@ def _parse_constraints(
         if len(c) == 4:
             sh = c[3]
             if (
-                not (isinstance(sh, tuple) or isinstance(sh, list))
+                not isinstance(sh, (tuple, list))
                 or len(sh) != shift_dim
             ):
                 raise ValueError(
@@ -412,16 +412,35 @@ def _parse_constraints(
     return i_idx, j_idx, val, shifts, shift_given, tuple(warnings)
 
 
-def maybe_remap_points(
-    points: np.ndarray, domain: Box | OrthorhombicCell | PeriodicCell | None
-) -> np.ndarray:
+def maybe_remap_points(points: np.ndarray, domain: DomainAny | None) -> np.ndarray:
     return _maybe_remap_points(points, domain)
 
 
-def _maybe_remap_points(
-    points: np.ndarray, domain: Box | OrthorhombicCell | PeriodicCell | None
-) -> np.ndarray:
-    return geometry3d(domain).remap_cart(points)
+def _geometry_for_dim(dim: int, domain: DomainAny | None):
+    if dim == 2:
+        if domain is not None and not isinstance(domain, (Box2D, RectangularCell)):
+            raise ValueError(
+                '2D points require domain=None or a planar domain '
+                '(pyvoro2.planar.Box or RectangularCell)'
+            )
+        return geometry2d(domain)
+    if dim == 3:
+        if domain is not None and not isinstance(
+            domain, (Box3D, OrthorhombicCell, PeriodicCell)
+        ):
+            raise ValueError(
+                '3D points require domain=None or a 3D domain '
+                '(Box, OrthorhombicCell, or PeriodicCell)'
+            )
+        return geometry3d(domain)
+    raise ValueError('only 2D and 3D points are supported')
+
+
+def _maybe_remap_points(points: np.ndarray, domain: DomainAny | None) -> np.ndarray:
+    pts = np.asarray(points, dtype=float)
+    if pts.ndim != 2:
+        raise ValueError('points must have shape (n, d)')
+    return _geometry_for_dim(int(pts.shape[1]), domain).remap_cart(pts)
 
 
 def _resolve_constraint_shifts(
@@ -431,7 +450,7 @@ def _resolve_constraint_shifts(
     shifts: np.ndarray,
     shift_given: np.ndarray,
     *,
-    domain: Box | OrthorhombicCell | PeriodicCell | None,
+    domain: DomainAny | None,
     image: Literal['nearest', 'given_only'],
     image_search: int,
 ) -> tuple[np.ndarray, tuple[str, ...]]:
@@ -439,18 +458,19 @@ def _resolve_constraint_shifts(
 
     m = i_idx.shape[0]
     warnings: list[str] = []
-    geom = geometry3d(domain)
+    dim = int(points.shape[1])
+    geom = _geometry_for_dim(dim, domain)
 
     shifts = np.asarray(shifts, dtype=np.int64)
-    if shifts.shape != (m, 3):
-        raise ValueError('shifts must have shape (m,3)')
+    if shifts.shape != (m, dim):
+        raise ValueError(f'shifts must have shape (m,{dim})')
     shift_given = np.asarray(shift_given, dtype=bool)
     if shift_given.shape != (m,):
         raise ValueError('shift_given must have shape (m,)')
 
-    if geom.kind in ('none', 'box'):
+    if not geom.has_any_periodic_axis:
         geom.validate_shifts(shifts[shift_given])
-        return np.zeros((m, 3), dtype=np.int64), tuple(warnings)
+        return np.zeros((m, dim), dtype=np.int64), tuple(warnings)
 
     shifts2 = shifts.copy()
     provided_mask = shift_given.copy()
@@ -468,16 +488,23 @@ def _resolve_constraint_shifts(
 
     missing = ~provided_mask
     if np.any(missing):
-        resolved, boundary_hits = geom.nearest_image_shifts(
-            points[i_idx[missing]],
-            points[j_idx[missing]],
-            search=image_search,
-        )
+        if dim == 2:
+            resolved = geom.nearest_image_shifts(
+                points[i_idx[missing]],
+                points[j_idx[missing]],
+            )
+            boundary_hits = np.zeros(resolved.shape[0], dtype=bool)
+        else:
+            resolved, boundary_hits = geom.nearest_image_shifts(
+                points[i_idx[missing]],
+                points[j_idx[missing]],
+                search=image_search,
+            )
         shifts2[missing] = resolved
         warnings.append(
             'some constraints did not specify shifts; using nearest-image shifts'
         )
-        if geom.is_triclinic and np.any(boundary_hits):
+        if dim == 3 and geom.is_triclinic and np.any(boundary_hits):
             warnings.append(
                 'some nearest-image shifts touch the image_search boundary; '
                 'increase image_search for extra safety in skewed triclinic cells'
@@ -487,7 +514,8 @@ def _resolve_constraint_shifts(
     return shifts2, tuple(warnings)
 
 
-def shift_to_cart(
-    shifts: np.ndarray, domain: Box | OrthorhombicCell | PeriodicCell | None
-) -> np.ndarray:
-    return geometry3d(domain).shift_to_cart(shifts)
+def shift_to_cart(shifts: np.ndarray, domain: DomainAny | None) -> np.ndarray:
+    sh = np.asarray(shifts, dtype=np.int64)
+    if sh.ndim != 2:
+        raise ValueError('shifts must have shape (m, d)')
+    return _geometry_for_dim(int(sh.shape[1]), domain).shift_to_cart(sh)

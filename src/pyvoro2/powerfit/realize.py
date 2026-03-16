@@ -1,21 +1,36 @@
-"""Realized-face matching for resolved pairwise separator constraints."""
+"""Realized-boundary matching for resolved pairwise separator constraints."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Literal
 
+import warnings
+
 import numpy as np
 
 from .constraints import PairBisectorConstraints
 from .._domain_geometry import geometry3d
-from ..api import compute
-from ..diagnostics import TessellationDiagnostics
-from ..domains import Box, OrthorhombicCell, PeriodicCell
+from ..api import compute as compute3d
+from ..diagnostics import TessellationDiagnostics as TessellationDiagnostics3D
+from ..domains import Box as Box3D, OrthorhombicCell, PeriodicCell
+from ..edge_properties import annotate_edge_properties
 from ..face_properties import annotate_face_properties
+from ..planar._domain_geometry import geometry2d
+from ..planar.api import compute as compute2d
+from ..planar.diagnostics import (
+    TessellationDiagnostics as TessellationDiagnostics2D,
+    TessellationError as TessellationError2D,
+    analyze_tessellation as analyze_tessellation2d,
+)
+from ..planar.domains import Box as Box2D, RectangularCell
 
 ShiftTuple = tuple[int, ...]
 MeasureKey = tuple[int, int, ShiftTuple]
+Domain3D = Box3D | OrthorhombicCell | PeriodicCell
+Domain2D = Box2D | RectangularCell
+DomainAny = Domain2D | Domain3D
+TessellationDiagnosticsAny = TessellationDiagnostics2D | TessellationDiagnostics3D
 
 
 def _plain_value(value: object) -> object:
@@ -28,18 +43,17 @@ def _boundary_value(values: np.ndarray | None, index: int) -> float | None:
     return float(values[index])
 
 
-def _require_realization_dim_3(constraints: PairBisectorConstraints) -> None:
-    if constraints.dim != 3:
+def _supported_realization_dim(constraints: PairBisectorConstraints) -> None:
+    if constraints.dim not in (2, 3):
         raise ValueError(
-            'match_realized_pairs currently requires 3D resolved constraints; '
-            'lower-dimensional resolved constraints are supported only by '
-            'fit_power_weights for now'
+            'match_realized_pairs currently supports only 2D and 3D resolved '
+            'constraints'
         )
 
 
 @dataclass(frozen=True, slots=True)
 class RealizedPairDiagnostics:
-    """Diagnostics for matching candidate constraints to realized faces."""
+    """Diagnostics for matching candidate constraints to realized boundaries."""
 
     realized: np.ndarray
     unrealized: tuple[int, ...]
@@ -50,7 +64,7 @@ class RealizedPairDiagnostics:
     endpoint_j_empty: np.ndarray
     boundary_measure: np.ndarray | None
     cells: list[dict[str, Any]] | None
-    tessellation_diagnostics: TessellationDiagnostics | None
+    tessellation_diagnostics: TessellationDiagnosticsAny | None
 
     def to_records(
         self,
@@ -98,7 +112,7 @@ class RealizedPairDiagnostics:
         *,
         use_ids: bool = False,
     ) -> dict[str, object]:
-        """Return a JSON-friendly report for realized-face matching."""
+        """Return a JSON-friendly report for realized-boundary matching."""
 
         from .report import build_realized_report
 
@@ -108,7 +122,7 @@ class RealizedPairDiagnostics:
 def match_realized_pairs(
     points: np.ndarray,
     *,
-    domain: Box | OrthorhombicCell | PeriodicCell,
+    domain: DomainAny,
     radii: np.ndarray,
     constraints: PairBisectorConstraints,
     return_boundary_measure: bool = False,
@@ -116,11 +130,11 @@ def match_realized_pairs(
     return_tessellation_diagnostics: bool = False,
     tessellation_check: Literal['none', 'diagnose', 'warn', 'raise'] = 'diagnose',
 ) -> RealizedPairDiagnostics:
-    """Determine which resolved pair constraints correspond to realized faces.
+    """Determine which resolved pair constraints correspond to realized boundaries.
 
     The matching is purely geometric: each requested ordered pair ``(i, j, shift)``
-    is checked against the set of realized faces in the power tessellation,
-    including explicit periodic image shifts.
+    is checked against the set of realized cell boundaries in the power
+    tessellation, including explicit periodic image shifts.
     """
 
     pts = np.asarray(points, dtype=float)
@@ -130,49 +144,45 @@ def match_realized_pairs(
         raise ValueError('points do not match the resolved constraint set')
     if constraints.dim != pts.shape[1]:
         raise ValueError('points do not match the resolved constraint dimension')
-    _require_realization_dim_3(constraints)
+    _supported_realization_dim(constraints)
 
-    periodic = geometry3d(domain).has_any_periodic_axis
-
-    compute_result = compute(
-        pts,
-        domain=domain,
-        mode='power',
-        radii=np.asarray(radii, dtype=float),
-        return_vertices=True,
-        return_faces=True,
-        return_adjacency=False,
-        return_face_shifts=bool(periodic),
-        include_empty=True,
-        return_diagnostics=return_tessellation_diagnostics,
-        tessellation_check=tessellation_check,
-    )
-    if return_tessellation_diagnostics:
-        cells, tessellation_diagnostics = compute_result
+    dim = int(pts.shape[1])
+    if dim == 2:
+        cells, tessellation_diagnostics, periodic = _compute_planar_cells(
+            pts,
+            domain=domain,
+            radii=radii,
+            return_boundary_measure=return_boundary_measure,
+            return_tessellation_diagnostics=return_tessellation_diagnostics,
+            tessellation_check=tessellation_check,
+        )
+        boundary_key = 'edges'
+        measure_field = 'length'
+        shift_dim = 2
+    elif dim == 3:
+        cells, tessellation_diagnostics, periodic = _compute_3d_cells(
+            pts,
+            domain=domain,
+            radii=radii,
+            return_boundary_measure=return_boundary_measure,
+            return_tessellation_diagnostics=return_tessellation_diagnostics,
+            tessellation_check=tessellation_check,
+        )
+        boundary_key = 'faces'
+        measure_field = 'area'
+        shift_dim = 3
     else:
-        cells = compute_result
-        tessellation_diagnostics = None
+        raise ValueError(
+            'match_realized_pairs currently supports only 2D and 3D points'
+        )
 
-    if return_boundary_measure:
-        annotate_face_properties(cells, domain)
-
-    empty_by_id: dict[int, bool] = {}
-    shifts_by_pair: dict[tuple[int, int], set[ShiftTuple]] = {}
-    measure_by_pair_shift: dict[MeasureKey, float] = {}
-
-    for cell in cells:
-        ci = int(cell['id'])
-        verts = np.asarray(cell.get('vertices', []), dtype=float)
-        faces = cell.get('faces', [])
-        empty_by_id[ci] = bool(verts.size == 0 or len(faces) == 0)
-        for face in faces:
-            cj = int(face.get('adjacent_cell', -1))
-            if cj < 0:
-                continue
-            shift = tuple(int(v) for v in face.get('adjacent_shift', (0, 0, 0)))
-            shifts_by_pair.setdefault((ci, cj), set()).add(shift)
-            if return_boundary_measure:
-                measure_by_pair_shift[(ci, cj, shift)] = float(face.get('area', 0.0))
+    empty_by_id, shifts_by_pair, measure_by_pair_shift = _collect_boundary_maps(
+        cells,
+        boundary_key=boundary_key,
+        shift_dim=shift_dim,
+        return_boundary_measure=return_boundary_measure,
+        measure_field=measure_field,
+    )
 
     m = constraints.n_constraints
     realized = np.zeros(m, dtype=bool)
@@ -210,21 +220,13 @@ def match_realized_pairs(
             unrealized.append(k)
 
         if boundary_measure is not None and any_realized:
-            if same:
-                key_f = (i, j, target_shift)
-                key_r = (j, i, tuple(-int(v) for v in target_shift))
-                if key_f in measure_by_pair_shift:
-                    boundary_measure[k] = measure_by_pair_shift[key_f]
-                elif key_r in measure_by_pair_shift:
-                    boundary_measure[k] = measure_by_pair_shift[key_r]
-            else:
-                chosen = realized_set[0]
-                key_f = (i, j, chosen)
-                key_r = (j, i, tuple(-int(v) for v in chosen))
-                if key_f in measure_by_pair_shift:
-                    boundary_measure[k] = measure_by_pair_shift[key_f]
-                elif key_r in measure_by_pair_shift:
-                    boundary_measure[k] = measure_by_pair_shift[key_r]
+            chosen = target_shift if same else realized_set[0]
+            key_f = (i, j, chosen)
+            key_r = (j, i, tuple(-int(v) for v in chosen))
+            if key_f in measure_by_pair_shift:
+                boundary_measure[k] = measure_by_pair_shift[key_f]
+            elif key_r in measure_by_pair_shift:
+                boundary_measure[k] = measure_by_pair_shift[key_r]
 
     return RealizedPairDiagnostics(
         realized=realized,
@@ -238,3 +240,145 @@ def match_realized_pairs(
         cells=cells if return_cells else None,
         tessellation_diagnostics=tessellation_diagnostics,
     )
+
+
+def _compute_3d_cells(
+    points: np.ndarray,
+    *,
+    domain: DomainAny,
+    radii: np.ndarray,
+    return_boundary_measure: bool,
+    return_tessellation_diagnostics: bool,
+    tessellation_check: Literal['none', 'diagnose', 'warn', 'raise'],
+) -> tuple[list[dict[str, Any]], TessellationDiagnostics3D | None, bool]:
+    if not isinstance(domain, (Box3D, OrthorhombicCell, PeriodicCell)):
+        raise ValueError(
+            '3D points require a 3D domain: Box, OrthorhombicCell, or '
+            'PeriodicCell'
+        )
+
+    periodic = geometry3d(domain).has_any_periodic_axis
+    compute_result = compute3d(
+        points,
+        domain=domain,
+        mode='power',
+        radii=np.asarray(radii, dtype=float),
+        return_vertices=True,
+        return_faces=True,
+        return_adjacency=False,
+        return_face_shifts=bool(periodic),
+        include_empty=True,
+        return_diagnostics=return_tessellation_diagnostics,
+        tessellation_check=tessellation_check,
+    )
+    if return_tessellation_diagnostics:
+        cells, tessellation_diagnostics = compute_result
+    else:
+        cells = compute_result
+        tessellation_diagnostics = None
+
+    if return_boundary_measure:
+        annotate_face_properties(cells, domain)
+    return cells, tessellation_diagnostics, bool(periodic)
+
+
+def _compute_planar_cells(
+    points: np.ndarray,
+    *,
+    domain: DomainAny,
+    radii: np.ndarray,
+    return_boundary_measure: bool,
+    return_tessellation_diagnostics: bool,
+    tessellation_check: Literal['none', 'diagnose', 'warn', 'raise'],
+) -> tuple[list[dict[str, Any]], TessellationDiagnostics2D | None, bool]:
+    if not isinstance(domain, (Box2D, RectangularCell)):
+        raise ValueError(
+            '2D points require a planar domain: pyvoro2.planar.Box or '
+            'RectangularCell'
+        )
+
+    periodic = geometry2d(domain).has_any_periodic_axis
+    cells = compute2d(
+        points,
+        domain=domain,
+        mode='power',
+        radii=np.asarray(radii, dtype=float),
+        return_vertices=True,
+        return_edges=True,
+        return_adjacency=False,
+        return_edge_shifts=bool(periodic),
+        include_empty=True,
+    )
+
+    if return_boundary_measure:
+        annotate_edge_properties(cells, domain)
+
+    do_diag = bool(return_tessellation_diagnostics) or tessellation_check != 'none'
+    tessellation_diagnostics = None
+    if do_diag:
+        expected = list(range(int(points.shape[0])))
+        tessellation_diagnostics = analyze_tessellation2d(
+            cells,
+            domain,
+            expected_ids=expected,
+            check_reciprocity=bool(periodic),
+            check_line_mismatch=bool(periodic),
+            mark_edges=bool(periodic),
+        )
+        if tessellation_check in ('warn', 'raise'):
+            ok = bool(tessellation_diagnostics.ok_area) and (
+                bool(tessellation_diagnostics.ok_reciprocity)
+                if bool(periodic)
+                else True
+            )
+            if not ok:
+                msg = (
+                    "tessellation_check failed (mode='power'): "
+                    f'area_ratio={tessellation_diagnostics.area_ratio:g}, '
+                    f'orphan_edges={tessellation_diagnostics.n_edges_orphan}, '
+                    'mismatched_edges='
+                    f'{tessellation_diagnostics.n_edges_mismatched}'
+                )
+                if tessellation_check == 'raise':
+                    raise TessellationError2D(msg, tessellation_diagnostics)
+                warnings.warn(msg, stacklevel=2)
+
+    if not return_tessellation_diagnostics:
+        tessellation_diagnostics = None
+    return cells, tessellation_diagnostics, bool(periodic)
+
+
+def _collect_boundary_maps(
+    cells: list[dict[str, Any]],
+    *,
+    boundary_key: Literal['edges', 'faces'],
+    shift_dim: int,
+    return_boundary_measure: bool,
+    measure_field: str,
+) -> tuple[
+    dict[int, bool],
+    dict[tuple[int, int], set[ShiftTuple]],
+    dict[MeasureKey, float],
+]:
+    empty_by_id: dict[int, bool] = {}
+    shifts_by_pair: dict[tuple[int, int], set[ShiftTuple]] = {}
+    measure_by_pair_shift: dict[MeasureKey, float] = {}
+
+    zero_shift = tuple(0 for _ in range(shift_dim))
+    for cell in cells:
+        ci = int(cell['id'])
+        verts = np.asarray(cell.get('vertices', []), dtype=float)
+        boundaries = cell.get(boundary_key, [])
+        empty_by_id[ci] = bool(verts.size == 0 or len(boundaries) == 0)
+        for boundary in boundaries:
+            cj = int(boundary.get('adjacent_cell', -1))
+            if cj < 0:
+                continue
+            shift = tuple(int(v) for v in boundary.get('adjacent_shift', zero_shift))
+            shifts_by_pair.setdefault((ci, cj), set()).add(shift)
+            if return_boundary_measure:
+                measure_by_pair_shift[(ci, cj, shift)] = float(
+                    boundary.get(measure_field, 0.0)
+                )
+
+    return empty_by_id, shifts_by_pair, measure_by_pair_shift

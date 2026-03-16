@@ -81,3 +81,42 @@ def test_resolve_pair_bisector_constraints_warns_on_triclinic_search_boundary():
 
     assert tuple(int(v) for v in constraints.shifts[0]) == (-1, 0, 0)
     assert any('image_search boundary' in msg for msg in constraints.warnings)
+
+
+def test_resolve_pair_bisector_constraints_supports_planar_box() -> None:
+    import pyvoro2.planar as pv2
+    from pyvoro2 import resolve_pair_bisector_constraints
+
+    pts = np.array([[0.0, 0.0], [2.0, 0.0]], dtype=float)
+    domain = pv2.Box(((-5.0, 5.0), (-5.0, 5.0)))
+    constraints = resolve_pair_bisector_constraints(
+        pts,
+        [(0, 1, 0.25)],
+        measurement='fraction',
+        domain=domain,
+    )
+
+    assert constraints.dim == 2
+    assert tuple(int(v) for v in constraints.shifts[0]) == (0, 0)
+    assert np.isclose(constraints.distance[0], 2.0)
+    assert np.isclose(constraints.target_position[0], 0.5)
+
+
+def test_resolve_pair_bisector_constraints_supports_planar_periodic_shift() -> None:
+    import pyvoro2.planar as pv2
+    from pyvoro2 import resolve_pair_bisector_constraints
+
+    domain = pv2.RectangularCell(((0.0, 1.0), (0.0, 1.0)), periodic=(True, True))
+    pts = np.array([[0.1, 0.5], [0.9, 0.5]], dtype=float)
+
+    constraints = resolve_pair_bisector_constraints(
+        pts,
+        [(0, 1, 0.5, (-1, 0))],
+        measurement='fraction',
+        domain=domain,
+        image='given_only',
+    )
+
+    assert bool(constraints.explicit_shift[0]) is True
+    assert tuple(int(v) for v in constraints.shifts[0]) == (-1, 0)
+    assert np.isclose(constraints.distance[0], 0.2)

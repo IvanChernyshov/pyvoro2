@@ -221,3 +221,57 @@ def test_self_consistent_result_exports_records_with_ids():
         'stable_inactive',
         'active_unrealized',
     }
+
+
+def test_self_consistent_solver_supports_planar_box() -> None:
+    import pyvoro2.planar as pv2
+    from pyvoro2 import solve_self_consistent_power_weights
+
+    pts = np.array(
+        [[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]],
+        dtype=float,
+    )
+    domain = pv2.Box(((-5.0, 5.0), (-5.0, 5.0)))
+    res = solve_self_consistent_power_weights(
+        pts,
+        [(0, 1, 0.5), (1, 2, 0.5), (0, 2, 0.5)],
+        measurement='fraction',
+        domain=domain,
+        return_history=True,
+        return_boundary_measure=True,
+        return_tessellation_diagnostics=True,
+    )
+
+    assert res.termination == 'self_consistent'
+    assert bool(res.active_mask[0]) is True
+    assert bool(res.active_mask[1]) is True
+    assert bool(res.active_mask[2]) is False
+    assert bool(res.realized.realized_same_shift[2]) is False
+    assert res.tessellation_diagnostics is not None
+    assert res.tessellation_diagnostics.ok is True
+    assert res.diagnostics.boundary_measure is not None
+    assert np.isfinite(res.rms_residual_all)
+
+
+def test_self_consistent_solver_supports_planar_periodic_wrong_shift() -> None:
+    import pyvoro2.planar as pv2
+    from pyvoro2 import ActiveSetOptions, solve_self_consistent_power_weights
+
+    cell = pv2.RectangularCell(((0.0, 1.0), (0.0, 1.0)), periodic=(True, True))
+    pts = np.array([[0.1, 0.5], [0.9, 0.5]], dtype=float)
+    res = solve_self_consistent_power_weights(
+        pts,
+        [(0, 1, 0.5, (1, 0))],
+        measurement='fraction',
+        domain=cell,
+        image='given_only',
+        options=ActiveSetOptions(add_after=1, drop_after=1, max_iter=5),
+    )
+
+    assert res.termination == 'self_consistent'
+    assert bool(res.active_mask[0]) is False
+    assert bool(res.realized.realized[0]) is True
+    assert bool(res.realized.realized_same_shift[0]) is False
+    assert bool(res.realized.realized_other_shift[0]) is True
+    assert res.diagnostics.status == ('realized_other_shift',)
+    assert (-1, 0) in res.diagnostics.realized_shifts[0]

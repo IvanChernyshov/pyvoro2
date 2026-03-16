@@ -134,3 +134,42 @@ def test_report_json_helpers_roundtrip_plain_report(tmp_path):
     out_path = tmp_path / 'fit_report.json'
     write_report_json(report, out_path, sort_keys=True)
     assert json.loads(out_path.read_text(encoding='utf-8')) == loaded
+
+
+def test_active_set_report_supports_planar_tessellation_diagnostics() -> None:
+    import pyvoro2.planar as pv2
+    from pyvoro2 import (
+        ActiveSetOptions,
+        FitModel,
+        Interval,
+        build_active_set_report,
+        resolve_pair_bisector_constraints,
+        solve_self_consistent_power_weights,
+    )
+
+    pts = np.array([[0.0, 0.0], [2.0, 0.0]], dtype=float)
+    box = pv2.Box(((-5.0, 5.0), (-5.0, 5.0)))
+    constraints = resolve_pair_bisector_constraints(
+        pts,
+        [(100, 200, 0.5)],
+        ids=[100, 200],
+        index_mode='id',
+        measurement='fraction',
+        domain=box,
+    )
+    result = solve_self_consistent_power_weights(
+        pts,
+        constraints,
+        domain=box,
+        model=FitModel(feasible=Interval(0.0, 1.0)),
+        options=ActiveSetOptions(max_iter=5),
+        return_tessellation_diagnostics=True,
+    )
+
+    report = build_active_set_report(result, use_ids=True)
+
+    assert report['constraints'][0]['site_i'] == 100
+    assert report['tessellation_diagnostics'] is not None
+    assert report['tessellation_diagnostics']['dimension'] == 2
+    assert report['tessellation_diagnostics']['domain_area'] > 0.0
+    assert report['tessellation_diagnostics']['ok_area'] is True

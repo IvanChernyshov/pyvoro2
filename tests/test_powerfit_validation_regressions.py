@@ -243,8 +243,9 @@ def test_pre_resolved_constraints_expose_dimension_property():
     assert constraints.dim == 2
 
 
-def test_match_realized_pairs_rejects_pre_resolved_lower_dim_constraints():
-    from pyvoro2 import Box, PairBisectorConstraints, match_realized_pairs
+def test_match_realized_pairs_supports_pre_resolved_planar_constraints():
+    import pyvoro2.planar as pv2
+    from pyvoro2 import PairBisectorConstraints, match_realized_pairs
 
     pts = np.array([[0.0, 0.0], [2.0, 0.0]], dtype=float)
     constraints = PairBisectorConstraints(
@@ -266,18 +267,20 @@ def test_match_realized_pairs_rejects_pre_resolved_lower_dim_constraints():
         warnings=tuple(),
     )
 
-    with pytest.raises(ValueError, match='currently requires 3D resolved constraints'):
-        match_realized_pairs(
-            pts,
-            domain=Box(((-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0))),
-            radii=np.array([0.0, 0.0]),
-            constraints=constraints,
-        )
+    diag = match_realized_pairs(
+        pts,
+        domain=pv2.Box(((-5.0, 5.0), (-5.0, 5.0))),
+        radii=np.array([0.0, 0.0]),
+        constraints=constraints,
+    )
+
+    assert bool(diag.realized[0]) is True
+    assert diag.unrealized == tuple()
 
 
-def test_active_set_rejects_pre_resolved_lower_dim_constraints():
+def test_active_set_supports_pre_resolved_planar_constraints():
+    import pyvoro2.planar as pv2
     from pyvoro2 import (
-        Box,
         PairBisectorConstraints,
         solve_self_consistent_power_weights,
     )
@@ -302,10 +305,12 @@ def test_active_set_rejects_pre_resolved_lower_dim_constraints():
         warnings=tuple(),
     )
 
-    with pytest.raises(ValueError, match='currently requires 3D resolved constraints'):
-        solve_self_consistent_power_weights(
-            pts,
-            constraints,
-            measurement='fraction',
-            domain=Box(((-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0))),
-        )
+    res = solve_self_consistent_power_weights(
+        pts,
+        constraints,
+        measurement='fraction',
+        domain=pv2.Box(((-5.0, 5.0), (-5.0, 5.0))),
+    )
+
+    assert res.termination == 'self_consistent'
+    assert bool(res.realized.realized_same_shift[0]) is True
