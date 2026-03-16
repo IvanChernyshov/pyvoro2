@@ -90,3 +90,35 @@ def test_planar_validate_tessellation_strict_raises_on_area_gap() -> None:
 
     with pytest.raises(pv2.TessellationError):
         pv2.validate_tessellation(broken, box, level='strict')
+
+
+def test_planar_compute_periodic_diagnostics_auto_enable_edge_shifts() -> None:
+    pts, domain = _periodic_sample()
+    cells, diag = pv2.compute(
+        pts,
+        domain=domain,
+        return_vertices=False,
+        return_adjacency=False,
+        return_edges=False,
+        return_diagnostics=True,
+    )
+
+    assert all(set(cell.keys()) == {'id', 'area', 'site'} for cell in cells)
+    assert diag.reciprocity_checked is True
+    assert diag.ok_reciprocity is True
+    assert diag.ok is True
+
+
+def test_planar_compute_tessellation_check_raise_uses_internal_shifts() -> None:
+    pts, domain = _periodic_sample()
+    cells = pv2.compute(
+        pts,
+        domain=domain,
+        return_vertices=False,
+        return_adjacency=False,
+        return_edges=False,
+        tessellation_check='raise',
+    )
+
+    assert len(cells) == len(pts)
+    assert all(set(cell.keys()) == {'id', 'area', 'site'} for cell in cells)

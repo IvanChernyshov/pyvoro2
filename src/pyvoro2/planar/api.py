@@ -18,6 +18,11 @@ from .._inputs import (
 )
 from ._domain_geometry import geometry2d
 from ._edge_shifts2d import _add_periodic_edge_shifts_inplace
+from .diagnostics import (
+    TessellationDiagnostics,
+    TessellationError,
+    analyze_tessellation,
+)
 from .domains import Box, RectangularCell
 from .duplicates import duplicate_check as _duplicate_check
 
@@ -31,6 +36,34 @@ except Exception as _e:  # pragma: no cover
 
 
 Domain2D = Box | RectangularCell
+
+
+def _strip_internal_geometry_inplace(
+    cells: list[dict[str, Any]],
+    *,
+    keep_vertices: bool,
+    keep_adjacency: bool,
+    keep_edges: bool,
+    keep_edge_shifts: bool,
+) -> None:
+    """Drop internal geometry fields that were requested only for analysis.
+
+    Periodic diagnostics may require temporary vertices/edges/edge shifts even
+    when the caller only wants a lightweight high-level answer. This helper
+    removes those internal extras before the final result is returned.
+    """
+
+    for cell in cells:
+        if not keep_vertices:
+            cell.pop('vertices', None)
+        if not keep_adjacency:
+            cell.pop('adjacency', None)
+        if not keep_edges:
+            cell.pop('edges', None)
+            continue
+        if not keep_edge_shifts:
+            for edge in cell.get('edges') or []:
+                edge.pop('adjacent_shift', None)
 
 
 def _require_core2d():
@@ -100,12 +133,30 @@ def compute(
     validate_edge_shifts: bool = True,
     repair_edge_shifts: bool = False,
     edge_shift_tol: float | None = None,
-) -> list[dict[str, Any]]:
+    return_diagnostics: bool = False,
+    tessellation_check: Literal['none', 'diagnose', 'warn', 'raise'] = 'none',
+    tessellation_require_reciprocity: bool | None = None,
+    tessellation_area_tol_rel: float = 1e-8,
+    tessellation_area_tol_abs: float = 1e-12,
+    tessellation_line_offset_tol: float | None = None,
+    tessellation_line_angle_tol: float | None = None,
+) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], TessellationDiagnostics]:
     """Compute planar Voronoi or power tessellation cells.
 
     Supported domains:
       - :class:`~pyvoro2.planar.domains.Box`
       - :class:`~pyvoro2.planar.domains.RectangularCell`
+
+    Planar compute mirrors the 3D wrapper's diagnostics convenience path:
+    set ``return_diagnostics=True`` to also return a
+    :class:`~pyvoro2.planar.TessellationDiagnostics` object, and/or set
+    ``tessellation_check='warn'`` or ``'raise'`` to have common area and
+    reciprocity issues handled directly by the wrapper.
+
+    For periodic domains, diagnostics automatically compute temporary edge
+    shifts and the required edge/vertex geometry internally, even when those
+    fields were not requested by the caller. Any such temporary fields are
+    stripped from the returned cells unless they were explicitly requested.
     """
 
     pts = coerce_point_array(points, name='points', dim=2)
@@ -114,18 +165,43 @@ def compute(
 
     if int(edge_shift_search) < 0:
         raise ValueError('edge_shift_search must be >= 0')
+    if tessellation_check not in ('none', 'diagnose', 'warn', 'raise'):
+        raise ValueError(
+            'tessellation_check must be one of: none, diagnose, warn, raise'
+        )
+
+    user_return_vertices = bool(return_vertices)
+    user_return_adjacency = bool(return_adjacency)
+    user_return_edges = bool(return_edges)
+    user_return_edge_shifts = bool(return_edge_shifts)
 
     geom = geometry2d(domain)
-    if return_edge_shifts:
+    need_diag = bool(return_diagnostics) or tessellation_check != 'none'
+    need_periodic_diag_geometry = bool(need_diag and geom.has_any_periodic_axis)
+
+    internal_return_vertices = user_return_vertices or need_periodic_diag_geometry
+    internal_return_adjacency = user_return_adjacency
+    internal_return_edges = user_return_edges or need_periodic_diag_geometry
+    internal_return_edge_shifts = (
+        user_return_edge_shifts or need_periodic_diag_geometry
+    )
+
+    if user_return_edge_shifts:
         if not geom.has_any_periodic_axis:
             raise ValueError(
                 'return_edge_shifts is only supported for periodic domains '
                 '(RectangularCell with any periodic axis)'
             )
-        if not return_edges:
+        if not user_return_edges:
             raise ValueError('return_edge_shifts requires return_edges=True')
-        if not return_vertices:
+        if not user_return_vertices:
             raise ValueError('return_edge_shifts requires return_vertices=True')
+
+    if internal_return_edge_shifts:
+        if repair_edge_shifts:
+            validate_edge_shifts = True
+        if edge_shift_tol is not None and float(edge_shift_tol) < 0:
+            raise ValueError('edge_shift_tol must be >= 0')
 
     ids_internal = np.arange(n, dtype=np.int32)
     ids_user = coerce_id_array(ids, n=n)
@@ -149,7 +225,11 @@ def compute(
     )
     bounds = geom.bounds
     periodic_flags = geom.periodic_axes
-    opts = (bool(return_vertices), bool(return_adjacency), bool(return_edges))
+    opts = (
+        internal_return_vertices,
+        internal_return_adjacency,
+        internal_return_edges,
+    )
 
     rr: np.ndarray | None = None
     if mode == 'standard':
@@ -188,7 +268,7 @@ def compute(
     else:
         raise ValueError(f'unknown mode: {mode}')
 
-    if return_edge_shifts:
+    if internal_return_edge_shifts:
         _add_periodic_edge_shifts_inplace(
             cells,
             lattice_vectors=geom.lattice_vectors_cart,
@@ -203,6 +283,59 @@ def compute(
 
     if ids_user is not None:
         remap_ids_inplace(cells, ids_user, boundary_key='edges')
+
+    diag: TessellationDiagnostics | None = None
+    if need_diag:
+        expected = ids_user.tolist() if ids_user is not None else list(range(n))
+        periodic = bool(geom.has_any_periodic_axis)
+        diag = analyze_tessellation(
+            cells,
+            domain,
+            expected_ids=expected,
+            mode=mode,
+            area_tol_rel=float(tessellation_area_tol_rel),
+            area_tol_abs=float(tessellation_area_tol_abs),
+            check_reciprocity=bool(periodic),
+            check_line_mismatch=bool(periodic),
+            line_offset_tol=tessellation_line_offset_tol,
+            line_angle_tol=tessellation_line_angle_tol,
+            mark_edges=bool(periodic),
+        )
+
+        if tessellation_require_reciprocity is None:
+            tessellation_require_reciprocity = bool(periodic) and mode in (
+                'standard',
+                'power',
+            )
+
+        if tessellation_check in ('warn', 'raise'):
+            ok = bool(diag.ok_area) and (
+                bool(diag.ok_reciprocity)
+                if bool(tessellation_require_reciprocity)
+                else True
+            )
+            if not ok:
+                msg = (
+                    f'tessellation_check failed (mode={mode!r}): '
+                    f'area_ratio={diag.area_ratio:g}, '
+                    f'orphan_edges={diag.n_edges_orphan}, '
+                    f'mismatched_edges={diag.n_edges_mismatched}'
+                )
+                if tessellation_check == 'raise':
+                    raise TessellationError(msg, diag)
+                warnings.warn(msg, stacklevel=2)
+
+    _strip_internal_geometry_inplace(
+        cells,
+        keep_vertices=user_return_vertices,
+        keep_adjacency=user_return_adjacency,
+        keep_edges=user_return_edges,
+        keep_edge_shifts=user_return_edge_shifts,
+    )
+
+    if return_diagnostics:
+        assert diag is not None
+        return cells, diag
     return cells
 
 

@@ -17,6 +17,7 @@ The format is based on *Keep a Changelog*, and this project follows *Semantic Ve
 
 ### Changed
 
+- `pyvoro2.planar.compute(...)` now supports wrapper-level tessellation diagnostics (`return_diagnostics=...`, `tessellation_check=...`) and automatically computes temporary periodic edge shifts/geometry when needed for those checks, stripping the temporary fields back out unless they were explicitly requested.
 - `tools/install_wheel_overlay.py` now understands both `_core` and `_core2d`, so the editable-style wheel-overlay workflow can carry planar support once new wheels are built.
 - Package metadata now marks the start of the 0.6.0 development line.
 - `resolve_pair_bisector_constraints(...)` now accepts both planar (2D) and spatial (3D) point sets, with dimension-aware shift validation and nearest-image resolution.
