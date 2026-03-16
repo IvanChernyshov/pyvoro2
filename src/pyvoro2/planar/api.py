@@ -608,6 +608,8 @@ def ghost_cells(
             periodic_mask=geom.periodic_axes,
             mode=mode,
             radii=rr,
+            site_positions=pts,
+            ghost_radii=gr if mode == 'power' else None,
             search=int(edge_shift_search),
             tol=edge_shift_tol,
             validate=bool(validate_edge_shifts),

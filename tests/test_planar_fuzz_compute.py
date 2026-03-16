@@ -155,3 +155,36 @@ def test_fuzz_planar_compute_result_periodic_topology(
         assert diag.ok_edge_vertex_sets is True
         assert result.global_vertices is not None
         assert result.global_edges is not None
+
+
+@pytest.mark.fuzz
+def test_fuzz_planar_ghost_cells_periodic_power_smoke(fuzz_settings) -> None:
+    n_runs = max(1, int(fuzz_settings['n']) // 3)
+    seed = int(fuzz_settings['seed'])
+
+    bounds = ((0.0, 1.0), (0.0, 1.0))
+    domain = pv2.RectangularCell(bounds, periodic=(True, True))
+
+    for run in range(n_runs):
+        rng = rng_for_run(seed, 7000 + run)
+        pts = _sample_points_in_bounds(rng, 18, bounds)
+        radii = rng.uniform(0.0, 0.06, size=(18,))
+        queries = rng.uniform(-0.25, 1.25, size=(6, 2))
+        ghost_radii = rng.uniform(0.0, 0.05, size=(6,))
+
+        cells = pv2.ghost_cells(
+            pts,
+            queries,
+            domain=domain,
+            mode='power',
+            radii=radii,
+            ghost_radius=ghost_radii,
+            return_vertices=True,
+            return_edges=True,
+            return_edge_shifts=True,
+            include_empty=True,
+        )
+
+        assert len(cells) == len(queries)
+        assert all('query_index' in cell for cell in cells)
+        assert all('site' in cell for cell in cells)

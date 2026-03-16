@@ -2,11 +2,11 @@
 
 ## Summary
 
-pyvoro2 is a scientific Python package for computing **3D Voronoi-type tessellations**.
+pyvoro2 is a scientific Python package for computing **2D and 3D Voronoi-type tessellations**.
 It is built on top of the established C++ library **Voro++**, and it focuses on the parts
 that usually decide whether a tessellation is merely “computed” or actually **usable** in downstream analysis:
 
-- periodic boundary conditions (including **triclinic** unit cells),
+- periodic boundary conditions (including **triclinic** unit cells in 3D and rectangular periodicity in 2D),
 - extraction of neighbor graphs with the correct periodic images,
 - diagnostic checks and normalization utilities for reproducible topology work.
 
@@ -18,7 +18,8 @@ At the core, pyvoro2 exposes only two mathematically standard tessellations:
 ## What is Voro++
 
 Voro++ is a widely used C++ library for computing Voronoi cells efficiently in 3D.
-It implements robust algorithms and is commonly used in computational physics and materials science.
+pyvoro2 also vendors the legacy upstream 2D sources for its planar namespace.
+These backends are commonly used in computational physics and materials science.
 
 pyvoro2 vendors a snapshot of upstream Voro++ and builds its Python extension against it.
 The vendored snapshot includes the upstream numeric robustness fix for *power/Laguerre* (radical) pruning,
@@ -28,8 +29,8 @@ which avoids rare cross-platform edge cases in fully periodic power tessellation
 
 Use pyvoro2 when you need one (or more) of the following:
 
-- Voronoi or power/Laguerre tessellations in **3D**,
-- periodic domains (especially triclinic crystal cells),
+- Voronoi or power/Laguerre tessellations in **2D or 3D**,
+- periodic domains (especially triclinic crystal cells in 3D or rectangular periodic cells in 2D),
 - a neighbor graph where the periodic image is explicit,
 - “point queries” such as owner lookup (`locate`) or probe cells (`ghost_cells`).
 
@@ -44,7 +45,7 @@ Voro++ is a C++ library with a low-level API. pyvoro2 provides:
 - Python-friendly outputs (dicts + NumPy arrays),
 - periodic neighbor image shifts (`adjacent_shift`) for graph work,
 - diagnostics (`analyze_tessellation`) and normalization helpers,
-- inverse fitting tools that turn desired interface placements into a **power diagram**.
+- inverse fitting tools that turn desired interface placements into a **power diagram** in both planar and spatial settings.
 
 ## Compared to `pyvoro`
 
@@ -54,9 +55,8 @@ pyvoro2 aims to be a more modern interface with a larger emphasis on:
 
 - periodic crystals (including triclinic),
 - correctness checks and reproducible topology utilities,
+- a dedicated planar namespace (`pyvoro2.planar`) rather than 2D/3D overload magic,
 - additional operations beyond “compute all cells”.
-
-Native 2D support is not yet part of pyvoro2, but it is a planned roadmap item.
 
 ## Design note: stateless API
 

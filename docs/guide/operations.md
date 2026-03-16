@@ -1,7 +1,8 @@
 # Operations
 
 pyvoro2 exposes three high-level operations. They correspond to three common
-questions you may ask about a set of sites:
+questions you may ask about a set of sites. The same three verbs also exist in
+`pyvoro2.planar` for 2D workflows.
 
 1. **What does the full tessellation look like?**  
    (Compute every Voronoi/power cell.)
@@ -11,6 +12,10 @@ questions you may ask about a set of sites:
    (Compute a “probe” cell without inserting the point.)
 
 All operations are **stateless**: pyvoro2 creates a Voro++ container in C++, inserts the sites, performs the computation, and returns Python data structures. There is no persistent container object that you need to manage.
+
+The same three operation names also exist in the dedicated 2D namespace
+`pyvoro2.planar`. See [Planar 2D](planar.md) for the planar-specific domains,
+result schema, and wrapper conveniences.
 
 ## Coordinate scale and numerical safety
 

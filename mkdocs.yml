@@ -1,5 +1,5 @@
 site_name: pyvoro2
-site_description: Python bindings for Voro++ (3D Voronoi and power/Laguerre tessellations) with periodic and topology utilities.
+site_description: Python bindings for Voro++ (2D/3D Voronoi and power/Laguerre tessellations) with periodic, topology, and inverse power-fitting utilities.
 site_url: https://delonecommons.github.io/pyvoro2/
 repo_url: https://github.com/DeloneCommons/pyvoro2
 repo_name: DeloneCommons/pyvoro2
@@ -69,7 +69,8 @@ nav:
   - Home: index.md
   - User guide:
       - Concepts: guide/concepts.md
-      - Domains: guide/domains.md
+      - Domains (3D): guide/domains.md
+      - Planar (2D): guide/planar.md
       - Operations: guide/operations.md
       - Topology and graphs: guide/topology.md
       - Power fitting: guide/powerfit.md
@@ -83,13 +84,25 @@ nav:
       - notebooks/06_powerfit_reports.ipynb
       - notebooks/07_powerfit_infeasibility.ipynb
   - API reference:
-      - Domains: reference/domains.md
-      - API: reference/api.md
-      - Diagnostics: reference/diagnostics.md
-      - Validation: reference/validation.md
-      - Duplicate check: reference/duplicates.md
-      - Normalization: reference/normalize.md
-      - Face properties: reference/face_properties.md
+      - Spatial (3D):
+          - Domains: reference/domains.md
+          - API: reference/api.md
+          - Diagnostics: reference/diagnostics.md
+          - Validation: reference/validation.md
+          - Duplicate check: reference/duplicates.md
+          - Normalization: reference/normalize.md
+          - Face properties: reference/face_properties.md
+          - Visualization (3D): reference/viz3d.md
+      - Planar (2D):
+          - Overview: reference/planar/index.md
+          - Domains: reference/planar/domains.md
+          - API: reference/planar/api.md
+          - Diagnostics: reference/planar/diagnostics.md
+          - Normalization: reference/planar/normalize.md
+          - Validation: reference/planar/validation.md
+          - Compute result: reference/planar/result.md
+          - Edge properties: reference/edge_properties.md
+          - Visualization (2D): reference/viz2d.md
       - Power fitting:
           - Overview: reference/powerfit/index.md
           - Constraints: reference/powerfit/constraints.md
@@ -98,7 +111,6 @@ nav:
           - Realization: reference/powerfit/realize.md
           - Active set: reference/powerfit/active.md
           - Reports: reference/powerfit/report.md
-      - Visualization: reference/viz3d.md
   - Project:
       - About: project/about.md
       - Changelog: about/changelog.md

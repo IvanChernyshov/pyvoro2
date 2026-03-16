@@ -7,17 +7,46 @@ For that reason, it is often worth having a lightweight way to **look at the out
 pyvoro2 intentionally keeps visualization **optional**:
 
 - the core package has no plotting dependencies;
-- the optional helper module is aimed at *debugging and exploratory work*, not publication-quality rendering.
+- planar 2D plotting is handled by a lightweight matplotlib helper;
+- spatial 3D viewing is handled by the optional `py3Dmol` helper;
+- both are aimed at *debugging and exploratory work*, not publication-quality rendering.
 
-## Installing the optional viewer
+## Installing optional visualization helpers
 
 ```bash
+# 2D plotting only
+pip install "pyvoro2[viz2d]"
+
+# both 2D + 3D helpers
 pip install "pyvoro2[viz]"
 ```
 
-(or install the dependency directly: `pip install py3Dmol`)
+## A minimal 2D example
 
-## A minimal example
+```python
+import numpy as np
+import pyvoro2.planar as pv2
+from pyvoro2.viz2d import plot_tessellation
+
+pts = np.array([[0.2, 0.2], [0.8, 0.25], [0.4, 0.8]], dtype=float)
+domain = pv2.RectangularCell(((0.0, 1.0), (0.0, 1.0)), periodic=(True, True))
+
+cells = pv2.compute(
+    pts,
+    domain=domain,
+    return_vertices=True,
+    return_edges=True,
+    return_edge_shifts=True,
+)
+
+fig, ax = plot_tessellation(cells, domain=domain, show_sites=True)
+```
+
+The 2D helper returns `(fig, ax)` and is best suited for inspecting raw planar
+output, debugging periodic edge structure, and checking that a normalized or
+power-fitted result looks qualitatively right.
+
+## A minimal 3D example
 
 ```python
 import numpy as np
@@ -45,7 +74,7 @@ v = view_tessellation(
 v
 ```
 
-The viewer renders:
+The 3D viewer renders:
 
 - sites as small spheres (with optional text labels like `p0`, `p1`, ...),
 - cell faces as a simple wireframe,

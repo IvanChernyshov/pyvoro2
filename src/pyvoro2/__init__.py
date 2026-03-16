@@ -1,7 +1,8 @@
 """pyvoro2 package.
 
 This package provides Python bindings to the Voro++ cell-based Voronoi
-and power (Laguerre) tessellation library.
+and power (Laguerre) tessellation library, including the planar
+``pyvoro2.planar`` namespace for 2D workflows.
 """
 
 from __future__ import annotations

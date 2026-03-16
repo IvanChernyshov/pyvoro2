@@ -10,7 +10,7 @@ build-backend = 'scikit_build_core.build'
 [project]
 name = 'pyvoro2'
 dynamic = ['version']
-description = 'Python bindings for Voro++ (3D Voronoi and power/Laguerre tessellations) with periodic, topology, and inverse power-fitting utilities.'
+description = 'Python bindings for Voro++ with 2D/3D Voronoi and power/Laguerre tessellations, periodic topology utilities, and inverse power fitting.'
 readme = 'README.md'
 requires-python = '>=3.10'
 license = {file = 'LICENSE'}

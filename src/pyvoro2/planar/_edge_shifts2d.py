@@ -15,6 +15,8 @@ def _add_periodic_edge_shifts_inplace(
     periodic_mask: tuple[bool, bool] = (True, True),
     mode: Literal['standard', 'power'] = 'standard',
     radii: np.ndarray | None = None,
+    site_positions: np.ndarray | None = None,
+    ghost_radii: np.ndarray | None = None,
     search: int = 2,
     tol: float | None = None,
     validate: bool = True,
@@ -61,6 +63,13 @@ def _add_periodic_edge_shifts_inplace(
         raise ValueError('tol must be >= 0')
 
     sites: dict[int, np.ndarray] = {}
+    if site_positions is not None:
+        arr = np.asarray(site_positions, dtype=np.float64)
+        if arr.ndim != 2 or arr.shape[1] != 2:
+            raise ValueError('site_positions must have shape (n, 2)')
+        for pid, site in enumerate(arr):
+            sites[int(pid)] = site.reshape(2)
+
     for cell in cells:
         pid = int(cell.get('id', -1))
         if pid < 0:
@@ -97,14 +106,40 @@ def _add_periodic_edge_shifts_inplace(
         if radii is None:
             raise ValueError('radii is required for mode="power"')
         weights = np.asarray(radii, dtype=np.float64) ** 2
+        ghost_weights = (
+            None
+            if ghost_radii is None
+            else np.asarray(ghost_radii, dtype=np.float64) ** 2
+        )
     else:
         weights = None
+        ghost_weights = None
+
+    def _weight_for_cell(cell: dict[str, Any], pid: int) -> float:
+        if mode != 'power':
+            raise ValueError('cell weights are only defined in power mode')
+        assert weights is not None
+        if pid >= 0:
+            return float(weights[pid])
+
+        if ghost_weights is None:
+            raise ValueError(
+                'ghost_radii is required to reconstruct edge shifts for '
+                'power-mode ghost cells'
+            )
+        qidx = int(cell.get('query_index', -1))
+        if qidx < 0 or qidx >= int(ghost_weights.shape[0]):
+            raise ValueError(
+                'power-mode ghost cell is missing a valid query_index for '
+                'ghost-radius lookup'
+            )
+        return float(ghost_weights[qidx])
 
     def _residual_for_images(
         *,
-        pid: int,
         nid_arr: np.ndarray,
         p_i: np.ndarray,
+        w_i: float | None,
         p_img: np.ndarray,
         verts: np.ndarray,
     ) -> np.ndarray:
@@ -117,11 +152,11 @@ def _add_periodic_edge_shifts_inplace(
             rhs = 0.5 * (np.sum(p_img * p_img, axis=1) - np.dot(p_i, p_i))
         elif mode == 'power':
             assert weights is not None
-            wi = float(weights[pid])
+            assert w_i is not None
             wj = weights[nid_arr]
             rhs = 0.5 * (
                 (np.sum(p_img * p_img, axis=1) - wj)
-                - (np.dot(p_i, p_i) - wi)
+                - (np.dot(p_i, p_i) - w_i)
             )
         else:  # pragma: no cover
             raise ValueError(f'unknown mode: {mode}')
@@ -131,9 +166,9 @@ def _add_periodic_edge_shifts_inplace(
 
     def _best_shift_for_neighbor(
         *,
-        pid: int,
         nid: int,
         p_i: np.ndarray,
+        w_i: float | None,
         p_j: np.ndarray,
         verts: np.ndarray,
     ) -> tuple[int, float]:
@@ -180,9 +215,9 @@ def _add_periodic_edge_shifts_inplace(
 
         p_img_seed = p_j.reshape(1, 2) + trans_arr[seed_idx]
         resid_seed = _residual_for_images(
-            pid=pid,
             nid_arr=np.full(len(seed_idx), int(nid), dtype=np.int64),
             p_i=p_i,
+            w_i=w_i,
             p_img=p_img_seed,
             verts=verts,
         )
@@ -193,9 +228,9 @@ def _add_periodic_edge_shifts_inplace(
         if best_resid > tol_line and len(shifts) > len(seed_idx):
             p_img_full = p_j.reshape(1, 2) + trans_arr
             resid_full = _residual_for_images(
-                pid=pid,
                 nid_arr=np.full(len(shifts), int(nid), dtype=np.int64),
                 p_i=p_i,
+                w_i=w_i,
                 p_img=p_img_full,
                 verts=verts,
             )
@@ -240,8 +275,9 @@ def _add_periodic_edge_shifts_inplace(
 
     def _best_unknown_neighbor(
         *,
-        pid: int,
         p_i: np.ndarray,
+        pid: int,
+        w_i: float | None,
         verts: np.ndarray,
     ) -> tuple[int, int, float] | None:
         cand_nids: list[int] = []
@@ -262,9 +298,9 @@ def _add_periodic_edge_shifts_inplace(
         shift_idx_arr = np.asarray(cand_shift_idx, dtype=np.int64)
         p_img = site_arr[nid_arr] + trans_arr[shift_idx_arr]
         resid = _residual_for_images(
-            pid=pid,
             nid_arr=nid_arr,
             p_i=p_i,
+            w_i=w_i,
             p_img=p_img,
             verts=verts,
         )
@@ -296,11 +332,15 @@ def _add_periodic_edge_shifts_inplace(
 
     for cell in cells:
         pid = int(cell.get('id', -1))
-        if pid < 0:
-            continue
-        p_i = sites.get(pid)
+        site = np.asarray(cell.get('site', []), dtype=np.float64)
+        if site.size == 2:
+            p_i = site.reshape(2)
+        else:
+            p_i = sites.get(pid)
         if p_i is None:
             continue
+        w_i = _weight_for_cell(cell, pid) if mode == 'power' else None
+
         vertices = np.asarray(cell.get('vertices', []), dtype=np.float64)
         if vertices.size == 0:
             vertices = vertices.reshape((0, 2))
@@ -320,7 +360,12 @@ def _add_periodic_edge_shifts_inplace(
 
             nid = int(edge.get('adjacent_cell', -999999))
             if nid < 0:
-                resolved = _best_unknown_neighbor(pid=pid, p_i=p_i, verts=verts)
+                resolved = _best_unknown_neighbor(
+                    p_i=p_i,
+                    pid=pid,
+                    w_i=w_i,
+                    verts=verts,
+                )
                 if resolved is None:
                     edge['adjacent_shift'] = (0, 0)
                     residuals_by_edge[(pid, ei)] = 0.0
@@ -336,9 +381,9 @@ def _add_periodic_edge_shifts_inplace(
                 raise ValueError(f'missing site for adjacent_cell={nid}')
 
             best_idx, best_resid = _best_shift_for_neighbor(
-                pid=pid,
                 nid=nid,
                 p_i=p_i,
+                w_i=w_i,
                 p_j=p_j,
                 verts=verts,
             )

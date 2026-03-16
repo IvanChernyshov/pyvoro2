@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 
 The format is based on *Keep a Changelog*, and this project follows *Semantic Versioning*.
 
-## [0.6.0.dev0] - 2026-03-15
+## [0.6.0] - 2026-03-16
 
 ### Added
 
@@ -20,7 +20,7 @@ The format is based on *Keep a Changelog*, and this project follows *Semantic Ve
 
 - `pyvoro2.planar.compute(...)` now supports wrapper-level tessellation diagnostics (`return_diagnostics=...`, `tessellation_check=...`) and structured normalization convenience (`normalize='vertices'|'topology'`, `return_result=True`), automatically computing temporary periodic edge shifts/geometry when needed and stripping the temporary fields back out of the raw returned cells unless they were explicitly requested.
 - `tools/install_wheel_overlay.py` now understands both `_core` and `_core2d`, so the editable-style wheel-overlay workflow can carry planar support once new wheels are built.
-- Package metadata now marks the start of the 0.6.0 development line.
+- Package metadata, release notes, and top-level documentation now describe the frozen 0.6.0 release rather than the earlier development snapshot.
 - `resolve_pair_bisector_constraints(...)` now accepts both planar (2D) and spatial (3D) point sets, with dimension-aware shift validation and nearest-image resolution.
 - Power-fit reports now serialize both 2D and 3D tessellation diagnostics through a shared measure-oriented schema while preserving the existing area/volume-specific fields.
 

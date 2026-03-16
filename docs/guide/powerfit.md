@@ -5,7 +5,8 @@ fit auxiliary power weights so that selected pairwise separators land at desired
 locations along the connector between two sites.
 
 The API is intentionally **geometry-first** and **domain-agnostic**.
-Downstream code decides:
+The same high-level functions can now be used with either 3D domains or the
+planar `pyvoro2.planar` domains. Downstream code decides:
 
 - which site pairs are candidates,
 - which periodic image shift belongs to each pair,
@@ -164,7 +165,8 @@ This returns purely geometric diagnostics:
 - whether it is realized with the **same** requested periodic shift,
 - whether only some **other** image is realized,
 - whether one of the endpoint cells is empty,
-- an optional boundary measure of the matched face,
+- an optional boundary measure of the matched boundary
+  (**face area** in 3D, **edge length** in 2D),
 - and optional tessellation-wide diagnostics.
 
 ## Step 5: solve the self-consistent active-set problem
@@ -280,14 +282,21 @@ pv.write_report_json(solve_report, 'solve_report.json', sort_keys=True)
 
 ## Current scope
 
-The current implementation is 3D because it builds on the existing Voro++-based
-power tessellation core. The **API vocabulary** is already dimension-safe:
-constraint fitting is phrased in terms of pairwise separators and boundary
-measure rather than chemistry-specific or 3D-only semantics.
+The current implementation supports both **3D** domains through `pyvoro2` and
+**2D planar** domains through `pyvoro2.planar`. The shared solver vocabulary is
+intentionally dimension-safe: constraint fitting is phrased in terms of
+pairwise separators and generic boundary measure rather than chemistry-specific
+or 3D-only semantics.
 
-### Objective-model scope for 0.5.x
+The main current restriction is geometric, not algebraic:
 
-The 0.5.x series intentionally keeps the built-in objective family compact:
+- 3D supports `Box`, `OrthorhombicCell`, and triclinic `PeriodicCell`;
+- 2D currently supports `Box` and rectangular `RectangularCell`;
+- there is **no** planar oblique-periodic `PeriodicCell` yet.
+
+### Objective-model scope for 0.6.0
+
+The 0.6.0 series intentionally keeps the built-in objective family compact:
 
 - mismatch terms: `SquaredLoss`, `HuberLoss`
 - hard feasibility: `Interval`, `FixedValue`
@@ -300,7 +309,7 @@ hard-feasibility checks, residual diagnostics, and solver behavior easy to
 reason about.
 
 Additional mismatch or penalty families should wait until downstream packages
-validate a concrete need for them. In particular, 0.5.x does **not** try to
+validate a concrete need for them. In particular, 0.6.0 does **not** try to
 freeze an open-ended callback API for arbitrary user-defined objectives.
 
 ## Worked example notebooks

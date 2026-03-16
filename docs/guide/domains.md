@@ -1,5 +1,9 @@
 # Domains (containers)
 
+> This page focuses on the **3D** top-level domains (`pyvoro2`). For the
+> current **2D** scope, see the [Planar (2D)](planar.md) guide and
+> `pyvoro2.planar`.
+
 A Voronoi or power/Laguerre tessellation is always defined **inside a domain**:
 
 - for a finite cluster you typically want an explicit boundary (a box),
@@ -8,6 +12,9 @@ A Voronoi or power/Laguerre tessellation is always defined **inside a domain**:
 
 In Voro++ terminology, these are different *containers*. In pyvoro2 they are exposed as
 small Python dataclasses.
+
+This page describes the **3D** domain classes on the top-level `pyvoro2` API.
+For the dedicated 2D surface, see [Planar 2D](planar.md).
 
 ## Choosing a domain
 
