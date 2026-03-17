@@ -28,6 +28,52 @@ def _plain_value(value: object) -> object:
 
 
 @dataclass(frozen=True, slots=True)
+class ConstraintGraphDiagnostics:
+    """Connectivity summary for a graph induced by constraint rows."""
+
+    n_points: int
+    n_constraints: int
+    n_edges: int
+    isolated_points: tuple[int, ...]
+    connected_components: tuple[tuple[int, ...], ...]
+    fully_connected: bool
+
+    @property
+    def n_components(self) -> int:
+        """Return the number of connected components."""
+
+        return int(len(self.connected_components))
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectivityDiagnostics:
+    """Structured connectivity diagnostics for the inverse-fit graph."""
+
+    unconstrained_points: tuple[int, ...]
+    candidate_graph: ConstraintGraphDiagnostics
+    effective_graph: ConstraintGraphDiagnostics
+    active_graph: ConstraintGraphDiagnostics | None = None
+    active_effective_graph: ConstraintGraphDiagnostics | None = None
+    candidate_offsets_identified_by_data: bool = False
+    active_offsets_identified_by_data: bool | None = None
+    offsets_identified_in_objective: bool = False
+    gauge_policy: str = ''
+    messages: tuple[str, ...] = ()
+
+
+class ConnectivityDiagnosticsError(ValueError):
+    """Raised when connectivity_check='raise' detects a graph issue."""
+
+    def __init__(
+        self,
+        message: str,
+        diagnostics: ConnectivityDiagnostics,
+    ) -> None:
+        super().__init__(message)
+        self.diagnostics = diagnostics
+
+
+@dataclass(frozen=True, slots=True)
 class PowerWeightFitResult:
     """Result of inverse fitting of power weights."""
 
@@ -52,6 +98,7 @@ class PowerWeightFitResult:
     converged: bool
     conflict: 'HardConstraintConflict | None'
     warnings: tuple[str, ...]
+    connectivity: ConnectivityDiagnostics | None = None
 
     @property
     def is_optimal(self) -> bool:
@@ -225,21 +272,37 @@ def radii_to_weights(radii: np.ndarray) -> np.ndarray:
 
 
 def weights_to_radii(
-    weights: np.ndarray, *, r_min: float = 0.0
+    weights: np.ndarray,
+    *,
+    r_min: float = 0.0,
+    weight_shift: float | None = None,
 ) -> tuple[np.ndarray, float]:
-    """Convert power weights to radii using a global gauge shift."""
+    """Convert power weights to radii using an explicit global shift.
+
+    By default, the returned radii use the minimal additive shift that makes the
+    smallest radius equal to ``r_min``. Pass ``weight_shift`` to request an
+    explicit gauge instead.
+    """
 
     w = np.asarray(weights, dtype=float)
     if w.ndim != 1:
         raise ValueError('weights must be 1D')
     if not np.all(np.isfinite(w)):
         raise ValueError('weights must contain only finite values')
-    r_min = float(r_min)
-    if r_min < 0:
-        raise ValueError('r_min must be >= 0')
 
-    w_min = float(np.min(w)) if w.size else 0.0
-    C = (r_min * r_min) - w_min
+    if weight_shift is not None:
+        if r_min != 0.0:
+            raise ValueError('specify at most one of r_min and weight_shift')
+        C = float(weight_shift)
+        if not np.isfinite(C):
+            raise ValueError('weight_shift must be finite')
+    else:
+        r_min = float(r_min)
+        if r_min < 0:
+            raise ValueError('r_min must be >= 0')
+        w_min = float(np.min(w)) if w.size else 0.0
+        C = (r_min * r_min) - w_min
+
     w_shifted = w + C
     if np.any(w_shifted < -1e-14):
         raise ValueError('weight shift produced negative values (numerical issue)')
@@ -260,16 +323,20 @@ def fit_power_weights(
     confidence: list[float] | tuple[float, ...] | np.ndarray | None = None,
     model: FitModel | None = None,
     r_min: float = 0.0,
+    weight_shift: float | None = None,
     solver: Literal['auto', 'analytic', 'admm'] = 'auto',
     max_iter: int = 2000,
     rho: float = 1.0,
     tol_abs: float = 1e-6,
     tol_rel: float = 1e-5,
+    connectivity_check: Literal['none', 'diagnose', 'warn', 'raise'] = 'warn',
 ) -> PowerWeightFitResult:
     """Fit power weights from resolved pairwise separator constraints.
 
     The raw constraint tuples are ``(i, j, value[, shift])`` where ``shift`` is
-    the integer lattice image applied to site ``j``.
+    the integer lattice image applied to site ``j``. The returned radii use the
+    minimal non-negative global gauge by default; pass ``weight_shift`` for an
+    explicit output gauge or ``r_min`` for the legacy minimum-radius helper.
     """
 
     pts = np.asarray(points, dtype=float)
@@ -310,11 +377,13 @@ def fit_power_weights(
         resolved,
         model=model,
         r_min=r_min,
+        weight_shift=weight_shift,
         solver=solver,
         max_iter=max_iter,
         rho=rho,
         tol_abs=tol_abs,
         tol_rel=tol_rel,
+        connectivity_check=connectivity_check,
     )
 
 
@@ -323,11 +392,13 @@ def _fit_power_weights_resolved(
     *,
     model: FitModel,
     r_min: float,
+    weight_shift: float | None,
     solver: Literal['auto', 'analytic', 'admm'],
     max_iter: int,
     rho: float,
     tol_abs: float,
     tol_rel: float,
+    connectivity_check: Literal['none', 'diagnose', 'warn', 'raise'],
 ) -> PowerWeightFitResult:
     n = int(constraints.n_points)
     m = int(constraints.n_constraints)
@@ -339,10 +410,15 @@ def _fit_power_weights_resolved(
         raise ValueError('rho must be > 0')
     if tol_abs <= 0 or tol_rel <= 0:
         raise ValueError('tol_abs and tol_rel must be > 0')
+    if connectivity_check not in ('none', 'diagnose', 'warn', 'raise'):
+        raise ValueError(
+            'connectivity_check must be none, diagnose, warn, or raise'
+        )
 
     reg = model.regularization
     lam = float(reg.strength)
     w0 = _regularization_reference(reg, n)
+    reference = None if reg.reference is None else w0
 
     geom = _measurement_geometry(constraints)
     z_target = (geom.target - geom.beta) / geom.alpha
@@ -351,6 +427,38 @@ def _fit_power_weights_resolved(
     hard = _hard_constraint_bounds(model.feasible, geom.alpha, geom.beta)
     z_lo = hard[0] if hard is not None else None
     z_hi = hard[1] if hard is not None else None
+
+    nonquadratic = _requires_admm(model)
+    if solver == 'auto':
+        solver_eff = 'analytic' if not nonquadratic else 'admm'
+    else:
+        solver_eff = solver
+    if solver_eff not in ('analytic', 'admm'):
+        raise ValueError('solver must be auto, analytic, or admm')
+    if solver_eff == 'analytic' and nonquadratic:
+        raise ValueError(
+            'analytic solver cannot be used with hard constraints '
+            'or non-quadratic penalties'
+        )
+
+    effective_mask = _difference_identifying_mask(constraints, model)
+    comps = _connected_components(
+        n,
+        constraints.i[effective_mask],
+        constraints.j[effective_mask],
+    )
+    connectivity = None
+    if connectivity_check != 'none':
+        connectivity = _build_fit_connectivity_diagnostics(
+            constraints,
+            model=model,
+            gauge_policy=_standalone_gauge_policy_description(reg),
+        )
+        _apply_connectivity_policy(
+            connectivity_check,
+            connectivity,
+            warnings_list,
+        )
 
     if hard is not None:
         feasible, conflict = _check_hard_feasibility(
@@ -384,6 +492,7 @@ def _fit_power_weights_resolved(
                 converged=False,
                 conflict=conflict,
                 warnings=tuple(warnings_list),
+                connectivity=connectivity,
             )
     else:
         conflict = None
@@ -394,10 +503,22 @@ def _fit_power_weights_resolved(
             warnings_list.append(
                 'empty constraint set; using the regularization-only solution'
             )
+        elif reference is not None:
+            weights = reference.copy()
+            warnings_list.append(
+                'empty constraint set; no pair data are present, so weights '
+                'follow the zero-strength reference gauge convention'
+            )
         else:
             weights = np.zeros(n, dtype=np.float64)
-            warnings_list.append('empty constraint set; returning zero weights')
-        radii, shift = weights_to_radii(weights, r_min=r_min)
+            warnings_list.append(
+                'empty constraint set; returning the mean-zero gauge solution'
+            )
+        radii, shift = weights_to_radii(
+            weights,
+            r_min=r_min,
+            weight_shift=weight_shift,
+        )
         pred_fraction = np.zeros(0, dtype=np.float64)
         pred_position = np.zeros(0, dtype=np.float64)
         pred = pred_fraction if constraints.measurement == 'fraction' else pred_position
@@ -421,39 +542,7 @@ def _fit_power_weights_resolved(
             converged=True,
             conflict=conflict,
             warnings=tuple(warnings_list),
-        )
-
-    nonquadratic = _requires_admm(model)
-    if solver == 'auto':
-        solver_eff = 'analytic' if not nonquadratic else 'admm'
-    else:
-        solver_eff = solver
-    if solver_eff not in ('analytic', 'admm'):
-        raise ValueError('solver must be auto, analytic, or admm')
-    if solver_eff == 'analytic' and nonquadratic:
-        raise ValueError(
-            'analytic solver cannot be used with hard constraints '
-            'or non-quadratic penalties'
-        )
-
-    if solver_eff == 'analytic' and lam == 0.0:
-        effective_mask = a > 0.0
-        comps = _connected_components(
-            n,
-            constraints.i[effective_mask],
-            constraints.j[effective_mask],
-        )
-        if np.any(~effective_mask):
-            warnings_list.append(
-                'zero-confidence constraints do not affect the quadratic fit '
-                'objective and are ignored for gauge connectivity'
-            )
-    else:
-        comps = _connected_components(n, constraints.i, constraints.j)
-    if len(comps) > 1 and lam == 0.0:
-        warnings_list.append(
-            'effective constraint graph has multiple connected components; '
-            'each component is gauge-fixed independently'
+            connectivity=connectivity,
         )
 
     weights = np.zeros(n, dtype=np.float64)
@@ -462,18 +551,20 @@ def _fit_power_weights_resolved(
 
     try:
         for nodes in comps:
-            if len(nodes) <= 1:
-                if lam > 0 and len(nodes) == 1:
-                    weights[nodes[0]] = w0[nodes[0]]
+            idx_nodes = np.asarray(nodes, dtype=np.int64)
+            if idx_nodes.size <= 1:
+                if lam > 0.0 and idx_nodes.size == 1:
+                    weights[idx_nodes[0]] = w0[idx_nodes[0]]
                 continue
 
             node_set = set(nodes)
-            mask = np.array(
-                [
+            mask = effective_mask & np.fromiter(
+                (
                     (int(i) in node_set) and (int(j) in node_set)
                     for i, j in zip(constraints.i, constraints.j)
-                ],
+                ),
                 dtype=bool,
+                count=m,
             )
             local_index = {int(node): k for k, node in enumerate(nodes)}
             ii = np.array(
@@ -490,7 +581,7 @@ def _fit_power_weights_resolved(
             beta_c = geom.beta[mask]
             target_c = geom.target[mask]
             conf_c = constraints.confidence[mask]
-            w0_c = w0[np.array(nodes, dtype=np.int64)]
+            w0_c = w0[idx_nodes]
             z_lo_c = None if z_lo is None else z_lo[mask]
             z_hi_c = None if z_hi is None else z_hi[mask]
 
@@ -518,14 +609,24 @@ def _fit_power_weights_resolved(
                 )
             if not np.all(np.isfinite(w_c)):
                 raise _NumericalFailure('component solver returned non-finite weights')
-            weights[np.array(nodes, dtype=np.int64)] = w_c
+            weights[idx_nodes] = w_c
             converged_all = converged_all and conv
             n_iter_max = max(n_iter_max, iters)
 
+        if lam == 0.0:
+            weights = _apply_component_mean_gauge(
+                weights,
+                comps,
+                reference=reference,
+            )
         if not np.all(np.isfinite(weights)):
             raise _NumericalFailure('assembled weight vector is non-finite')
         try:
-            radii, shift = weights_to_radii(weights, r_min=r_min)
+            radii, shift = weights_to_radii(
+                weights,
+                r_min=r_min,
+                weight_shift=weight_shift,
+            )
         except ValueError as exc:
             raise _NumericalFailure(str(exc)) from exc
         pred_fraction, pred_position, pred = _predict_measurements(weights, constraints)
@@ -558,6 +659,7 @@ def _fit_power_weights_resolved(
             converged=False,
             conflict=conflict,
             warnings=tuple(warnings_list),
+            connectivity=connectivity,
         )
 
     if converged_all:
@@ -586,6 +688,7 @@ def _fit_power_weights_resolved(
         converged=bool(converged_all),
         conflict=conflict,
         warnings=tuple(warnings_list),
+        connectivity=connectivity,
     )
 
 
@@ -630,6 +733,268 @@ def _regularization_reference(reg: L2Regularization, n: int) -> np.ndarray:
     if w0.shape != (n,):
         raise ValueError('regularization.reference must have shape (n,)')
     return w0.astype(np.float64)
+
+
+def _difference_identifying_mask(
+    constraints: PairBisectorConstraints,
+    model: FitModel,
+) -> np.ndarray:
+    mask = constraints.confidence > 0.0
+    if model.feasible is not None or len(model.penalties) > 0:
+        mask = np.ones(constraints.n_constraints, dtype=bool)
+    return np.asarray(mask, dtype=bool)
+
+
+def _apply_component_mean_gauge(
+    weights: np.ndarray,
+    comps: list[list[int]],
+    *,
+    reference: np.ndarray | None,
+) -> np.ndarray:
+    aligned = np.asarray(weights, dtype=np.float64).copy()
+    ref = None if reference is None else np.asarray(reference, dtype=np.float64)
+    for comp in comps:
+        idx = np.asarray(comp, dtype=np.int64)
+        if idx.size == 0:
+            continue
+        if ref is None:
+            target_mean = 0.0
+        else:
+            target_mean = float(np.mean(ref[idx]))
+        current_mean = float(np.mean(aligned[idx]))
+        aligned[idx] += target_mean - current_mean
+    return aligned
+
+
+def _standalone_gauge_policy_description(reg: L2Regularization) -> str:
+    if reg.reference is not None:
+        return (
+            'each effective component is shifted so its mean matches the '
+            'reference mean on that component'
+        )
+    return 'each effective component is centered to mean zero'
+
+
+def _graph_diagnostics(
+    n: int,
+    i_idx: np.ndarray,
+    j_idx: np.ndarray,
+    *,
+    n_constraints: int,
+) -> ConstraintGraphDiagnostics:
+    ii = np.asarray(i_idx, dtype=np.int64)
+    jj = np.asarray(j_idx, dtype=np.int64)
+    degree = np.zeros(n, dtype=np.int64)
+    if ii.size:
+        np.add.at(degree, ii, 1)
+        np.add.at(degree, jj, 1)
+    isolated = tuple(np.flatnonzero(degree == 0).tolist())
+    components = tuple(
+        tuple(int(node) for node in comp)
+        for comp in _connected_components(n, ii, jj)
+    )
+    edges = {
+        (int(min(i, j)), int(max(i, j)))
+        for i, j in zip(ii.tolist(), jj.tolist())
+    }
+    return ConstraintGraphDiagnostics(
+        n_points=int(n),
+        n_constraints=int(n_constraints),
+        n_edges=int(len(edges)),
+        isolated_points=isolated,
+        connected_components=components,
+        fully_connected=bool((n <= 1) or len(components) == 1),
+    )
+
+
+def _format_component_counts(graph: ConstraintGraphDiagnostics) -> str:
+    n_components = graph.n_components
+    return (
+        '1 connected component'
+        if n_components == 1
+        else f'{n_components} connected components'
+    )
+
+
+def _format_point_list(points: tuple[int, ...]) -> str:
+    return '[' + ', '.join(str(int(v)) for v in points) + ']'
+
+
+def _build_fit_connectivity_diagnostics(
+    constraints: PairBisectorConstraints,
+    *,
+    model: FitModel,
+    gauge_policy: str,
+) -> ConnectivityDiagnostics:
+    n = int(constraints.n_points)
+    candidate_graph = _graph_diagnostics(
+        n,
+        constraints.i,
+        constraints.j,
+        n_constraints=constraints.n_constraints,
+    )
+    effective_mask = _difference_identifying_mask(constraints, model)
+    effective_graph = _graph_diagnostics(
+        n,
+        constraints.i[effective_mask],
+        constraints.j[effective_mask],
+        n_constraints=int(np.count_nonzero(effective_mask)),
+    )
+
+    messages: list[str] = []
+    if candidate_graph.isolated_points:
+        messages.append(
+            'candidate graph leaves unconstrained points '
+            f'{_format_point_list(candidate_graph.isolated_points)}'
+        )
+    if candidate_graph.n_components > 1:
+        messages.append(
+            'candidate graph has ' f'{_format_component_counts(candidate_graph)}'
+        )
+    if np.any(~effective_mask):
+        messages.append(
+            'zero-confidence candidate rows do not identify pair differences '
+            'in the current objective and are ignored for '
+            'connectivity/gauge diagnostics'
+        )
+    if effective_graph.n_components > 1:
+        messages.append(
+            'pairwise data identify only '
+            f'{_format_component_counts(effective_graph)}; relative component '
+            'offsets are not identified by the data'
+        )
+
+    return ConnectivityDiagnostics(
+        unconstrained_points=candidate_graph.isolated_points,
+        candidate_graph=candidate_graph,
+        effective_graph=effective_graph,
+        candidate_offsets_identified_by_data=bool(effective_graph.fully_connected),
+        active_offsets_identified_by_data=None,
+        offsets_identified_in_objective=bool(
+            effective_graph.fully_connected
+            or float(model.regularization.strength) > 0.0
+        ),
+        gauge_policy=gauge_policy,
+        messages=tuple(messages),
+    )
+
+
+def _build_active_set_connectivity_diagnostics(
+    constraints: PairBisectorConstraints,
+    active_mask: np.ndarray,
+    *,
+    model: FitModel,
+    gauge_policy: str,
+) -> ConnectivityDiagnostics:
+    mask = np.asarray(active_mask, dtype=bool)
+    if mask.shape != (constraints.n_constraints,):
+        raise ValueError('active_mask must have shape (m,)')
+
+    n = int(constraints.n_points)
+    candidate_graph = _graph_diagnostics(
+        n,
+        constraints.i,
+        constraints.j,
+        n_constraints=constraints.n_constraints,
+    )
+    effective_mask = _difference_identifying_mask(constraints, model)
+    effective_graph = _graph_diagnostics(
+        n,
+        constraints.i[effective_mask],
+        constraints.j[effective_mask],
+        n_constraints=int(np.count_nonzero(effective_mask)),
+    )
+
+    active_constraints = constraints.subset(mask)
+    active_graph = _graph_diagnostics(
+        n,
+        active_constraints.i,
+        active_constraints.j,
+        n_constraints=active_constraints.n_constraints,
+    )
+    active_effective_mask = _difference_identifying_mask(active_constraints, model)
+    active_effective_graph = _graph_diagnostics(
+        n,
+        active_constraints.i[active_effective_mask],
+        active_constraints.j[active_effective_mask],
+        n_constraints=int(np.count_nonzero(active_effective_mask)),
+    )
+
+    messages: list[str] = []
+    if candidate_graph.isolated_points:
+        messages.append(
+            'candidate graph leaves unconstrained points '
+            f'{_format_point_list(candidate_graph.isolated_points)}'
+        )
+    if candidate_graph.n_components > 1:
+        messages.append(
+            'candidate graph has ' f'{_format_component_counts(candidate_graph)}'
+        )
+    if np.any(~effective_mask):
+        messages.append(
+            'zero-confidence candidate rows do not identify pair differences '
+            'in the current objective and are ignored for '
+            'connectivity/gauge diagnostics'
+        )
+    if effective_graph.n_components > 1:
+        messages.append(
+            'candidate pairwise data identify only '
+            f'{_format_component_counts(effective_graph)}; relative component '
+            'offsets are not identified by the data'
+        )
+    if active_graph.n_components > 1:
+        messages.append(
+            'final active graph has ' f'{_format_component_counts(active_graph)}'
+        )
+    if np.any(mask) and np.any(~active_effective_mask):
+        messages.append(
+            'zero-confidence active rows do not identify pair differences in '
+            'the current objective and are ignored for active-component gauge '
+            'alignment'
+        )
+    if active_effective_graph.n_components > 1:
+        messages.append(
+            'final active pairwise data identify only '
+            f'{_format_component_counts(active_effective_graph)}; relative '
+            'component offsets are preserved by the self-consistent gauge '
+            'policy rather than identified by the data'
+        )
+
+    return ConnectivityDiagnostics(
+        unconstrained_points=candidate_graph.isolated_points,
+        candidate_graph=candidate_graph,
+        effective_graph=effective_graph,
+        active_graph=active_graph,
+        active_effective_graph=active_effective_graph,
+        candidate_offsets_identified_by_data=bool(effective_graph.fully_connected),
+        active_offsets_identified_by_data=bool(
+            active_effective_graph.fully_connected
+        ),
+        offsets_identified_in_objective=bool(
+            active_effective_graph.fully_connected
+            or float(model.regularization.strength) > 0.0
+        ),
+        gauge_policy=gauge_policy,
+        messages=tuple(messages),
+    )
+
+
+def _apply_connectivity_policy(
+    policy: Literal['none', 'diagnose', 'warn', 'raise'],
+    diagnostics: ConnectivityDiagnostics,
+    warnings_list: list[str],
+) -> None:
+    if policy in ('none', 'diagnose') or not diagnostics.messages:
+        return
+    if policy == 'warn':
+        warnings_list.extend(diagnostics.messages)
+        return
+    if policy == 'raise':
+        raise ConnectivityDiagnosticsError(
+            '; '.join(diagnostics.messages),
+            diagnostics,
+        )
+    raise ValueError('unsupported connectivity policy')
 
 
 def _hard_constraint_bounds(

@@ -18,22 +18,25 @@ honest:
 It does **not** yet promise a planar oblique-periodic analogue of the 3D
 `PeriodicCell`.
 
+### Powerfit robustness in 0.6.1
+
+The 0.6.1 line hardens the inverse-fitting stack around underdetermined and
+mis-specified candidate graphs:
+
+- realized internal boundaries for candidate-absent pairs are now reported
+  explicitly in both 3D and planar 2D workflows;
+- low-level fits and self-consistent solves now expose structured connectivity
+  diagnostics for candidate graphs, active graphs, unconstrained sites, and
+  component identifiability;
+- disconnected-component gauge handling now follows explicit component-mean or
+  previous-iterate alignment policies rather than arbitrary anchor order;
+- the weight-to-radius conversion path now exposes `weight_shift=` directly
+  instead of relying only on the older minimum-radius convention.
+
 ## Planned / likely
 
-### Powerfit robustness (next cycle)
-
-The next high-priority design question is no longer “can the active-set loop
-iterate?”, but whether the package clearly reports when the inverse model is
-underspecified.
-
-Planned work includes:
-
-- reporting realized pair adjacencies that are present in the tessellation but
-  absent from the supplied candidate set;
-- graph/connectivity diagnostics for candidate and active-set graphs;
-- clearer policies for disconnected components and unconstrained sites;
-- revisiting the remaining chemistry-driven radius-convention legacy in the
-  `weights_to_radii(...)` path.
+The next roadmap questions are no longer about the basic powerfit surface, but
+about validation depth and overall API stabilization.
 
 ## Potential / exploratory
 
@@ -57,6 +60,6 @@ pyvoro2 is currently in **beta**.
 
 A “stable” 1.0 release is expected only after:
 
-- the post-0.6.0 powerfit robustness work lands,
+- the 0.6.1 robustness work is validated in downstream use,
 - the current planar scope is validated in downstream use,
 - the need (or non-need) for planar `PeriodicCell` is reassessed.

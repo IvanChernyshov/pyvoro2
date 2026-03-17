@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 import numpy as np
@@ -11,8 +11,12 @@ from .constraints import PairBisectorConstraints, resolve_pair_bisector_constrai
 from .model import FitModel
 from .realize import RealizedPairDiagnostics, match_realized_pairs
 from .solver import (
+    ConnectivityDiagnostics,
     PowerWeightFitResult,
+    _apply_connectivity_policy,
+    _build_active_set_connectivity_diagnostics,
     _connected_components,
+    _difference_identifying_mask,
     _predict_measurements,
     fit_power_weights,
     weights_to_radii,
@@ -181,6 +185,7 @@ class SelfConsistentPowerFitResult:
     )
     history: tuple[ActiveSetIteration, ...] | None
     warnings: tuple[str, ...]
+    connectivity: ConnectivityDiagnostics | None = None
 
     def to_records(self, *, use_ids: bool = False) -> tuple[dict[str, object], ...]:
         """Return one plain-Python record per candidate pair."""
@@ -211,6 +216,7 @@ def solve_self_consistent_power_weights(
     active0: np.ndarray | None = None,
     options: ActiveSetOptions | None = None,
     r_min: float = 0.0,
+    weight_shift: float | None = None,
     fit_solver: Literal['auto', 'analytic', 'admm'] = 'auto',
     fit_max_iter: int = 2000,
     fit_rho: float = 1.0,
@@ -221,6 +227,8 @@ def solve_self_consistent_power_weights(
     return_boundary_measure: bool = False,
     return_tessellation_diagnostics: bool = False,
     tessellation_check: Literal['none', 'diagnose', 'warn', 'raise'] = 'diagnose',
+    connectivity_check: Literal['none', 'diagnose', 'warn', 'raise'] = 'warn',
+    unaccounted_pair_check: Literal['none', 'diagnose', 'warn', 'raise'] = 'warn',
 ) -> SelfConsistentPowerFitResult:
     """Iteratively refine an active pair set against realized power-diagram
     boundaries."""
@@ -228,6 +236,14 @@ def solve_self_consistent_power_weights(
     pts = np.asarray(points, dtype=float)
     if pts.ndim != 2 or pts.shape[1] <= 0:
         raise ValueError('points must have shape (n, d) with d >= 1')
+    if connectivity_check not in ('none', 'diagnose', 'warn', 'raise'):
+        raise ValueError(
+            'connectivity_check must be none, diagnose, warn, or raise'
+        )
+    if unaccounted_pair_check not in ('none', 'diagnose', 'warn', 'raise'):
+        raise ValueError(
+            'unaccounted_pair_check must be none, diagnose, warn, or raise'
+        )
 
     if model is None:
         model = FitModel()
@@ -279,7 +295,6 @@ def solve_self_consistent_power_weights(
     prev_weights_eval: np.ndarray | None = None
     prev_realized_same: np.ndarray | None = None
     seen_masks: dict[bytes, int] = {active.tobytes(): 0}
-    comps = _connected_components(resolved.n_points, resolved.i, resolved.j)
 
     termination: Literal[
         'self_consistent',
@@ -299,11 +314,13 @@ def solve_self_consistent_power_weights(
             active_constraints,
             model=model,
             r_min=r_min,
+            weight_shift=weight_shift,
             solver=fit_solver,
             max_iter=fit_max_iter,
             rho=fit_rho,
             tol_abs=fit_tol_abs,
             tol_rel=fit_tol_rel,
+            connectivity_check='diagnose',
         )
         if fit.weights is None:
             warnings_list.extend(fit.warnings)
@@ -345,6 +362,19 @@ def solve_self_consistent_power_weights(
                 marginal=np.zeros(m, dtype=bool),
                 status=tuple(termination for _ in range(m)),
             )
+            connectivity = None
+            if connectivity_check != 'none':
+                connectivity = _build_active_set_connectivity_diagnostics(
+                    resolved,
+                    active,
+                    model=model,
+                    gauge_policy=_self_consistent_gauge_policy_description(),
+                )
+                _apply_connectivity_policy(
+                    connectivity_check,
+                    connectivity,
+                    warnings_list,
+                )
             return SelfConsistentPowerFitResult(
                 constraints=resolved,
                 fit=fit,
@@ -361,6 +391,7 @@ def solve_self_consistent_power_weights(
                 tessellation_diagnostics=None,
                 history=tuple(history_rows) if return_history else None,
                 warnings=tuple(warnings_list),
+                connectivity=connectivity,
             )
 
         weights_exact = fit.weights.copy()
@@ -368,7 +399,7 @@ def solve_self_consistent_power_weights(
             weights_exact = _align_weights_to_reference(
                 weights_exact,
                 prev_weights_eval,
-                comps,
+                _active_alignment_components(active_constraints, model),
             )
             weights_eval = (
                 (1.0 - float(options.relax)) * prev_weights_eval
@@ -379,7 +410,11 @@ def solve_self_consistent_power_weights(
             weights_eval = weights_exact
             step_norm = 0.0
 
-        radii_eval, _ = weights_to_radii(weights_eval, r_min=r_min)
+        radii_eval, _ = weights_to_radii(
+            weights_eval,
+            r_min=r_min,
+            weight_shift=weight_shift,
+        )
         diag = match_realized_pairs(
             pts,
             domain=domain,
@@ -389,6 +424,7 @@ def solve_self_consistent_power_weights(
             return_cells=False,
             return_tessellation_diagnostics=False,
             tessellation_check='none',
+            unaccounted_pair_check='none',
         )
         last_diag = diag
         realized_same = diag.realized_same_shift
@@ -485,11 +521,13 @@ def solve_self_consistent_power_weights(
         active_constraints,
         model=model,
         r_min=r_min,
+        weight_shift=weight_shift,
         solver=fit_solver,
         max_iter=fit_max_iter,
         rho=fit_rho,
         tol_abs=fit_tol_abs,
         tol_rel=fit_tol_rel,
+        connectivity_check='diagnose',
     )
     warnings_list.extend(final_fit.warnings)
 
@@ -497,7 +535,21 @@ def solve_self_consistent_power_weights(
         termination = 'numerical_failure'
         converged = False
 
-    if final_fit.weights is not None and final_fit.radii is not None:
+    if final_fit.weights is not None:
+        final_weights = final_fit.weights.copy()
+        if prev_weights_eval is not None:
+            final_weights = _align_weights_to_reference(
+                final_weights,
+                prev_weights_eval,
+                _active_alignment_components(active_constraints, model),
+            )
+        final_fit = _rebuild_fit_with_weights(
+            final_fit,
+            active_constraints,
+            final_weights,
+            r_min=r_min,
+            weight_shift=weight_shift,
+        )
         final_realized = match_realized_pairs(
             pts,
             domain=domain,
@@ -507,7 +559,9 @@ def solve_self_consistent_power_weights(
             return_cells=return_cells,
             return_tessellation_diagnostics=return_tessellation_diagnostics,
             tessellation_check=tessellation_check,
+            unaccounted_pair_check=unaccounted_pair_check,
         )
+        warnings_list.extend(final_realized.warnings)
         pred_fraction, pred_position, pred = _predict_measurements(
             final_fit.weights,
             resolved,
@@ -576,6 +630,20 @@ def solve_self_consistent_power_weights(
         status=status,
     )
 
+    connectivity = None
+    if connectivity_check != 'none':
+        connectivity = _build_active_set_connectivity_diagnostics(
+            resolved,
+            active,
+            model=model,
+            gauge_policy=_self_consistent_gauge_policy_description(),
+        )
+        _apply_connectivity_policy(
+            connectivity_check,
+            connectivity,
+            warnings_list,
+        )
+
     return SelfConsistentPowerFitResult(
         constraints=resolved,
         fit=final_fit,
@@ -592,6 +660,7 @@ def solve_self_consistent_power_weights(
         tessellation_diagnostics=final_realized.tessellation_diagnostics,
         history=tuple(history_rows) if return_history else None,
         warnings=tuple(warnings_list),
+        connectivity=connectivity,
     )
 
 
@@ -611,6 +680,62 @@ def _align_weights_to_reference(
     return aligned
 
 
+def _active_alignment_components(
+    constraints: PairBisectorConstraints,
+    model: FitModel,
+) -> list[list[int]]:
+    effective_mask = _difference_identifying_mask(constraints, model)
+    return _connected_components(
+        constraints.n_points,
+        constraints.i[effective_mask],
+        constraints.j[effective_mask],
+    )
+
+
+def _self_consistent_gauge_policy_description() -> str:
+    return (
+        'each connected active effective component is aligned to the previous '
+        'iterate; the first iterate falls back to the standalone component-mean '
+        'gauge'
+    )
+
+
+def _rebuild_fit_with_weights(
+    fit: PowerWeightFitResult,
+    constraints: PairBisectorConstraints,
+    weights: np.ndarray,
+    *,
+    r_min: float,
+    weight_shift: float | None,
+) -> PowerWeightFitResult:
+    radii, shift = weights_to_radii(
+        weights,
+        r_min=r_min,
+        weight_shift=weight_shift,
+    )
+    pred_fraction, pred_position, pred = _predict_measurements(weights, constraints)
+    target = (
+        constraints.target_fraction
+        if constraints.measurement == 'fraction'
+        else constraints.target_position
+    )
+    residuals = pred - target
+    rms = float(np.sqrt(np.mean(residuals * residuals))) if residuals.size else 0.0
+    mx = float(np.max(np.abs(residuals))) if residuals.size else 0.0
+    return replace(
+        fit,
+        weights=np.asarray(weights, dtype=np.float64).copy(),
+        radii=radii,
+        weight_shift=shift,
+        predicted=pred,
+        predicted_fraction=pred_fraction,
+        predicted_position=pred_position,
+        residuals=residuals,
+        rms_residual=rms,
+        max_residual=mx,
+    )
+
+
 def _empty_realized_pair_diagnostics(
     m: int, *, return_boundary_measure: bool
 ) -> RealizedPairDiagnostics:
@@ -627,6 +752,8 @@ def _empty_realized_pair_diagnostics(
         ),
         cells=None,
         tessellation_diagnostics=None,
+        unaccounted_pairs=tuple(),
+        warnings=tuple(),
     )
 
 

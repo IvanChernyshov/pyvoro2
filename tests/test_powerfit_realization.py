@@ -132,6 +132,7 @@ def test_match_realized_pairs_reports_periodic_wrong_shift():
     assert bool(diag.realized_other_shift[0]) is True
     assert (-1, 0, 0) in diag.realized_shifts[0]
     assert (1, 0, 0) not in diag.realized_shifts[0]
+    assert diag.unaccounted_pairs == tuple()
 
 
 def test_realized_pair_diagnostics_export_records():
@@ -223,3 +224,78 @@ def test_match_realized_pairs_supports_planar_periodic_wrong_shift() -> None:
     assert bool(diag.realized_other_shift[0]) is True
     assert (-1, 0) in diag.realized_shifts[0]
     assert (1, 0) not in diag.realized_shifts[0]
+    assert diag.unaccounted_pairs == tuple()
+
+
+def test_match_realized_pairs_reports_unaccounted_realized_pairs_in_3d():
+    from pyvoro2 import (
+        Box,
+        fit_power_weights,
+        match_realized_pairs,
+        resolve_pair_bisector_constraints,
+    )
+
+    pts = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
+        dtype=float,
+    )
+    box = Box(((-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0)))
+    constraints = resolve_pair_bisector_constraints(
+        pts,
+        [(0, 2, 0.5)],
+        measurement='fraction',
+        domain=box,
+    )
+    fit = fit_power_weights(pts, constraints)
+    diag = match_realized_pairs(
+        pts,
+        domain=box,
+        radii=fit.radii,
+        constraints=constraints,
+        return_boundary_measure=True,
+        unaccounted_pair_check='warn',
+    )
+
+    assert {(pair.site_i, pair.site_j) for pair in diag.unaccounted_pairs} == {
+        (0, 1),
+        (1, 2),
+    }
+    assert all(
+        pair.boundary_measure is not None
+        for pair in diag.unaccounted_pairs
+    )
+    assert any('candidate-absent' in msg for msg in diag.warnings)
+
+
+def test_match_realized_pairs_reports_unaccounted_realized_pairs_in_planar_box(
+) -> None:
+    import pyvoro2.planar as pv2
+    from pyvoro2 import (
+        fit_power_weights,
+        match_realized_pairs,
+        resolve_pair_bisector_constraints,
+    )
+
+    pts = np.array([[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]], dtype=float)
+    box = pv2.Box(((-5.0, 5.0), (-5.0, 5.0)))
+    constraints = resolve_pair_bisector_constraints(
+        pts,
+        [(0, 2, 0.5)],
+        measurement='fraction',
+        domain=box,
+    )
+    fit = fit_power_weights(pts, constraints)
+    diag = match_realized_pairs(
+        pts,
+        domain=box,
+        radii=fit.radii,
+        constraints=constraints,
+        return_boundary_measure=True,
+        unaccounted_pair_check='diagnose',
+    )
+
+    assert {(pair.site_i, pair.site_j) for pair in diag.unaccounted_pairs} == {
+        (0, 1),
+        (1, 2),
+    }
+    assert diag.warnings == tuple()

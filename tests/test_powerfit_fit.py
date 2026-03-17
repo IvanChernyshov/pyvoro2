@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 
 def test_fit_power_weights_fraction_two_points_analytic():
@@ -48,7 +49,7 @@ def test_r_min_sets_minimum_radius_via_weight_shift():
 
     assert np.min(res.radii) == np.min(res.radii)
     assert np.allclose(np.min(res.radii), 1.0, atol=1e-12)
-    assert np.allclose(res.weights[0], 0.0, atol=1e-12)
+    assert np.allclose(res.radii * res.radii, res.weights + res.weight_shift)
 
 
 def test_soft_interval_penalty_prefers_inside_interval():
@@ -163,3 +164,88 @@ def test_huber_loss_is_available_as_an_alternative_mismatch():
 
     assert res.status in ('optimal', 'max_iter')
     assert res.predicted is not None
+
+
+def test_fit_power_weights_accepts_explicit_weight_shift_for_radii():
+    from pyvoro2 import fit_power_weights
+
+    pts = np.array([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]], dtype=float)
+    res = fit_power_weights(
+        pts,
+        [(0, 1, 0.25)],
+        measurement='fraction',
+        weight_shift=2.0,
+    )
+
+    assert np.allclose(res.weights[0] - res.weights[1], -2.0, atol=1e-10)
+    assert np.allclose(res.weight_shift, 2.0, atol=1e-12)
+    assert np.allclose(res.radii * res.radii, res.weights + 2.0, atol=1e-12)
+
+
+def test_disconnected_components_use_mean_zero_gauge_and_connectivity_diagnostics():
+    from pyvoro2 import fit_power_weights
+
+    pts = np.array(
+        [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [10.0, 0.0, 0.0], [12.0, 0.0, 0.0]],
+        dtype=float,
+    )
+    res = fit_power_weights(
+        pts,
+        [(0, 1, 0.25), (2, 3, 0.75)],
+        measurement='fraction',
+        connectivity_check='diagnose',
+    )
+
+    assert np.allclose(res.weights[[0, 1]], np.array([-1.0, 1.0]), atol=1e-10)
+    assert np.allclose(res.weights[[2, 3]], np.array([1.0, -1.0]), atol=1e-10)
+    assert res.connectivity is not None
+    assert res.connectivity.candidate_graph.n_components == 2
+    assert res.connectivity.effective_graph.n_components == 2
+    assert res.connectivity.offsets_identified_in_objective is False
+    assert 'mean zero' in res.connectivity.gauge_policy
+
+
+def test_disconnected_components_can_align_to_zero_strength_reference_means():
+    from pyvoro2 import FitModel, L2Regularization, fit_power_weights
+
+    pts = np.array(
+        [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [10.0, 0.0, 0.0], [12.0, 0.0, 0.0]],
+        dtype=float,
+    )
+    model = FitModel(
+        regularization=L2Regularization(
+            strength=0.0,
+            reference=np.array([10.0, 20.0, 30.0, 40.0], dtype=float),
+        )
+    )
+    res = fit_power_weights(
+        pts,
+        [(0, 1, 0.25), (2, 3, 0.75)],
+        measurement='fraction',
+        model=model,
+        connectivity_check='diagnose',
+    )
+
+    assert np.allclose(res.weights[0] - res.weights[1], -2.0, atol=1e-10)
+    assert np.allclose(res.weights[2] - res.weights[3], 2.0, atol=1e-10)
+    assert np.allclose(np.mean(res.weights[:2]), 15.0, atol=1e-10)
+    assert np.allclose(np.mean(res.weights[2:]), 35.0, atol=1e-10)
+    assert res.connectivity is not None
+    assert 'reference mean' in res.connectivity.gauge_policy
+
+
+def test_fit_power_weights_can_raise_connectivity_diagnostics():
+    from pyvoro2 import ConnectivityDiagnosticsError, fit_power_weights
+
+    pts = np.array(
+        [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [10.0, 0.0, 0.0], [12.0, 0.0, 0.0]],
+        dtype=float,
+    )
+
+    with pytest.raises(ConnectivityDiagnosticsError):
+        fit_power_weights(
+            pts,
+            [(0, 1, 0.25), (2, 3, 0.75)],
+            measurement='fraction',
+            connectivity_check='raise',
+        )

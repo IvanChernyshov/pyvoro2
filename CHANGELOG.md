@@ -4,6 +4,25 @@ All notable changes to this project are documented in this file.
 
 The format is based on *Keep a Changelog*, and this project follows *Semantic Versioning*.
 
+## [0.6.1] - 2026-03-16
+
+### Added
+
+- Explicit realized-but-unaccounted pair diagnostics in both 3D and planar 2D power-fit realization, including public `UnaccountedRealizedPair` / `UnaccountedRealizedPairError` types and JSON/report export support.
+- Structured connectivity diagnostics for low-level fits and self-consistent active-set solves, covering unconstrained points, isolated points, connected components of candidate and active graphs, and whether relative offsets are identified by the data or only by gauge policy.
+
+### Changed
+
+- Disconnected standalone fits no longer inherit arbitrary anchor-order gauges: each effective component is centered to mean zero by default, or aligned to the regularization-reference mean when a zero-strength reference is supplied.
+- Self-consistent active-set fitting now preserves offsets per connected component of the current active effective graph by aligning each component to the previous iterate, including the final recomputed fit returned to the user.
+- `weights_to_radii(...)` and the fitting APIs now support an explicit `weight_shift=` gauge, while keeping `r_min=` as a backward-compatible convenience rather than the primary convention.
+- Power-fit reports now serialize connectivity diagnostics, unaccounted realized pairs, and realized-diagnostics warnings through the plain-Python report helpers.
+
+### Fixed
+
+- Active-set reports now nest the final low-level fit against the final active constraint subset rather than the full candidate table.
+- Periodic self-image boundaries are excluded from the new unaccounted-pair diagnostics, so wrong-shift reporting does not misclassify self-adjacencies as missing candidate pairs.
+
 ## [0.6.0] - 2026-03-16
 
 ### Added

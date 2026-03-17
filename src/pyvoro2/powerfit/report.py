@@ -15,7 +15,12 @@ import numpy as np
 
 from .constraints import PairBisectorConstraints
 from .realize import RealizedPairDiagnostics
-from .solver import HardConstraintConflict, PowerWeightFitResult
+from .solver import (
+    ConnectivityDiagnostics,
+    ConstraintGraphDiagnostics,
+    HardConstraintConflict,
+    PowerWeightFitResult,
+)
 
 
 def _label_nodes(nodes: tuple[int, ...], ids: np.ndarray | None) -> list[object]:
@@ -27,6 +32,59 @@ def _label_nodes(nodes: tuple[int, ...], ids: np.ndarray | None) -> list[object]
         value = ids[int(node)]
         labeled.append(value.item() if hasattr(value, 'item') else value)
     return labeled
+
+
+def _graph_record(
+    graph: ConstraintGraphDiagnostics | None,
+    *,
+    ids: np.ndarray | None,
+) -> dict[str, object] | None:
+    if graph is None:
+        return None
+    return {
+        'n_points': int(graph.n_points),
+        'n_constraints': int(graph.n_constraints),
+        'n_edges': int(graph.n_edges),
+        'isolated_points': _label_nodes(graph.isolated_points, ids),
+        'connected_components': [
+            _label_nodes(component, ids)
+            for component in graph.connected_components
+        ],
+        'n_components': int(graph.n_components),
+        'fully_connected': bool(graph.fully_connected),
+    }
+
+
+def _connectivity_record(
+    diagnostics: ConnectivityDiagnostics | None,
+    *,
+    ids: np.ndarray | None,
+) -> dict[str, object] | None:
+    if diagnostics is None:
+        return None
+    return {
+        'unconstrained_points': _label_nodes(diagnostics.unconstrained_points, ids),
+        'candidate_graph': _graph_record(diagnostics.candidate_graph, ids=ids),
+        'effective_graph': _graph_record(diagnostics.effective_graph, ids=ids),
+        'active_graph': _graph_record(diagnostics.active_graph, ids=ids),
+        'active_effective_graph': _graph_record(
+            diagnostics.active_effective_graph,
+            ids=ids,
+        ),
+        'candidate_offsets_identified_by_data': bool(
+            diagnostics.candidate_offsets_identified_by_data
+        ),
+        'active_offsets_identified_by_data': (
+            None
+            if diagnostics.active_offsets_identified_by_data is None
+            else bool(diagnostics.active_offsets_identified_by_data)
+        ),
+        'offsets_identified_in_objective': bool(
+            diagnostics.offsets_identified_in_objective
+        ),
+        'gauge_policy': diagnostics.gauge_policy,
+        'messages': list(diagnostics.messages),
+    }
 
 
 def _tessellation_record(diagnostics: Any | None) -> dict[str, object] | None:
@@ -172,6 +230,7 @@ def build_fit_report(
         ],
         'warnings': list(result.warnings),
         'conflict': _conflict_record(result.conflict, ids=ids),
+        'connectivity': _connectivity_record(result.connectivity, ids=ids),
     }
 
 
@@ -183,6 +242,7 @@ def build_realized_report(
 ) -> dict[str, object]:
     """Return a JSON-friendly report for realized-face matching."""
 
+    ids = constraints.ids if use_ids else None
     return {
         'kind': 'realized_pair_diagnostics',
         'summary': {
@@ -191,9 +251,12 @@ def build_realized_report(
             'n_same_shift': int(np.count_nonzero(diagnostics.realized_same_shift)),
             'n_other_shift': int(np.count_nonzero(diagnostics.realized_other_shift)),
             'n_unrealized': int(len(diagnostics.unrealized)),
+            'n_unaccounted_pairs': int(len(diagnostics.unaccounted_pairs)),
         },
         'records': list(diagnostics.to_records(constraints, use_ids=use_ids)),
         'unrealized': [int(idx) for idx in diagnostics.unrealized],
+        'unaccounted_pairs': list(diagnostics.unaccounted_records(ids=ids)),
+        'warnings': list(diagnostics.warnings),
         'tessellation_diagnostics': _tessellation_record(
             diagnostics.tessellation_diagnostics
         ),
@@ -256,7 +319,7 @@ def build_active_set_report(
         'constraints': list(result.constraints.to_records(use_ids=use_ids)),
         'fit': build_fit_report(
             result.fit,
-            result.constraints,
+            result.constraints.subset(result.active_mask),
             use_ids=use_ids,
         ),
         'realized': build_realized_report(
@@ -271,6 +334,10 @@ def build_active_set_report(
             result.tessellation_diagnostics
         ),
         'warnings': list(result.warnings),
+        'connectivity': _connectivity_record(
+            result.connectivity,
+            ids=(result.constraints.ids if use_ids else None),
+        ),
     }
 
 

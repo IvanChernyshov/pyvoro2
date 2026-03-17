@@ -314,3 +314,55 @@ def test_active_set_supports_pre_resolved_planar_constraints():
 
     assert res.termination == 'self_consistent'
     assert bool(res.realized.realized_same_shift[0]) is True
+
+
+def test_empty_resolved_constraints_can_follow_zero_strength_reference_gauge():
+    from pyvoro2 import FitModel, L2Regularization, fit_power_weights
+    from pyvoro2.powerfit.constraints import resolve_pair_bisector_constraints
+
+    pts = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=float)
+    constraints = resolve_pair_bisector_constraints(
+        pts,
+        [],
+        measurement='fraction',
+        allow_empty=True,
+    )
+    model = FitModel(
+        regularization=L2Regularization(
+            strength=0.0,
+            reference=np.array([3.0, 5.0], dtype=float),
+        )
+    )
+
+    res = fit_power_weights(
+        pts,
+        constraints,
+        model=model,
+        connectivity_check='diagnose',
+    )
+
+    assert res.status == 'optimal'
+    assert np.allclose(res.weights, np.array([3.0, 5.0]))
+    assert any(
+        'zero-strength reference gauge convention' in msg
+        for msg in res.warnings
+    )
+
+
+def test_weights_to_radii_supports_explicit_weight_shift():
+    from pyvoro2 import weights_to_radii
+
+    radii, shift = weights_to_radii(
+        np.array([-1.0, 3.0], dtype=float),
+        weight_shift=1.0,
+    )
+
+    assert np.allclose(radii, np.array([0.0, 2.0]))
+    assert np.allclose(shift, 1.0)
+
+    with pytest.raises(ValueError, match='at most one'):
+        weights_to_radii(
+            np.array([0.0, 1.0], dtype=float),
+            r_min=1.0,
+            weight_shift=0.0,
+        )

@@ -19,38 +19,40 @@ Scope of the 0.6.0 release:
 The 0.6.0 line should **not** add major new inverse-fitting policies. Those
 belong in 0.6.1.
 
-### 0.6.1 (powerfit robustness)
+### 0.6.1 (powerfit robustness, implemented in the current tree)
 
-This is the next planned feature line after 0.6.0.
+The 0.6.1 scope is now implemented in the working tree attached to this chat.
 
-Planned focus:
+Implemented focus:
 
-- detect realized pair adjacencies that exist in the tessellation but are
-  **absent** from the supplied candidate set;
-- distinguish clearly between:
-  - candidate-present but inactive rows,
-  - candidate-absent but realized pairs,
-  - disconnected candidate graphs,
-  - disconnected final active graphs;
-- add graph/connectivity diagnostics for both the full candidate graph and the
-  final active graph;
-- improve disconnected-component gauge handling so relative offsets are chosen
-  by a stable, explainable convention rather than by arbitrary anchor order;
-- revisit the current `weights_to_radii(...)` / “minimum radius is one” style
-  legacy convention, which is one of the remaining chemistry-driven pieces of
-  terminology and output policy.
+- realized pair adjacencies that exist in the tessellation but are **absent**
+  from the supplied candidate set are now reported explicitly rather than being
+  silently ignored or auto-added;
+- low-level fits and self-consistent active-set solves now expose structured
+  graph/connectivity diagnostics for unconstrained points, isolated points,
+  connected components, and whether relative offsets are identified by the
+  pairwise data;
+- disconnected standalone fits now use an explainable component-mean gauge
+  policy, while self-consistent solves preserve offsets per connected active
+  component by alignment to the previous iterate;
+- `weights_to_radii(...)` now supports an explicit `weight_shift=` gauge, with
+  `r_min=` retained as a compatibility-oriented convenience rather than the
+  preferred mathematical framing;
+- plain-Python report helpers now serialize both connectivity diagnostics and
+  realized-but-unaccounted pair diagnostics.
 
-The current preferred default policy for disconnected components is:
+The current preferred default policy for disconnected components is now the
+implemented behavior:
 
-- if an explicit reference exists, align each disconnected component to that
-  reference;
-- otherwise, center each disconnected component by its mean;
+- if an explicit reference exists, align each disconnected standalone component
+  to the reference mean on that component;
+- otherwise, center each disconnected standalone component by its mean;
 - in the self-consistent loop, preserve component offsets relative to the
-  previous iterate whenever the active graph is disconnected.
+  previous iterate whenever the active effective graph is disconnected.
 
 This remains a convention, not information identified by the pairwise data, so
-0.6.1 should also expose diagnostics and `diagnose` / `warn` / `raise` style
-policies around disconnectedness.
+connectivity diagnostics continue to support `none` / `diagnose` / `warn` /
+`raise` policies.
 
 ### Deferred / exploratory (candidate 0.6.2+ work)
 

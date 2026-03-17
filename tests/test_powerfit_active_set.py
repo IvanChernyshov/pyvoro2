@@ -200,7 +200,7 @@ def test_self_consistent_result_exports_records_with_ids():
     )
 
     pts = np.array([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]], dtype=float)
-    box = Box(((-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0)))
+    box = Box(((-5.0, 15.0), (-5.0, 5.0), (-5.0, 5.0)))
     res = solve_self_consistent_power_weights(
         pts,
         [(101, 202, 0.5)],
@@ -275,3 +275,115 @@ def test_self_consistent_solver_supports_planar_periodic_wrong_shift() -> None:
     assert bool(res.realized.realized_other_shift[0]) is True
     assert res.diagnostics.status == ('realized_other_shift',)
     assert (-1, 0) in res.diagnostics.realized_shifts[0]
+
+
+def test_self_consistent_solver_reports_active_connectivity_and_unaccounted_pairs():
+    from pyvoro2 import (
+        ActiveSetOptions,
+        Box,
+        solve_self_consistent_power_weights,
+    )
+
+    pts = np.array(
+        [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [10.0, 0.0, 0.0], [12.0, 0.0, 0.0]],
+        dtype=float,
+    )
+    box = Box(((-5.0, 15.0), (-5.0, 5.0), (-5.0, 5.0)))
+    res = solve_self_consistent_power_weights(
+        pts,
+        [(0, 1, 0.5), (2, 3, 0.5), (0, 2, 0.5)],
+        measurement='fraction',
+        domain=box,
+        options=ActiveSetOptions(add_after=1, drop_after=1, max_iter=5),
+        connectivity_check='diagnose',
+        unaccounted_pair_check='diagnose',
+    )
+
+    assert res.termination == 'self_consistent'
+    assert np.array_equal(res.active_mask, np.array([True, True, False]))
+    assert {(pair.site_i, pair.site_j) for pair in res.realized.unaccounted_pairs} == {
+        (1, 2),
+    }
+    assert res.connectivity is not None
+    assert res.connectivity.candidate_graph.n_components == 1
+    assert res.connectivity.active_graph is not None
+    assert res.connectivity.active_graph.n_components == 2
+    assert res.connectivity.active_offsets_identified_by_data is False
+
+
+def test_self_consistent_solver_preserves_active_component_offsets_on_final_refit(
+    monkeypatch,
+):
+    import pyvoro2.powerfit.active as active_mod
+    from pyvoro2 import ActiveSetOptions, Box
+    from pyvoro2.powerfit.realize import RealizedPairDiagnostics
+    from pyvoro2.powerfit.solver import PowerWeightFitResult, weights_to_radii
+
+    pts = np.array(
+        [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [10.0, 0.0, 0.0], [12.0, 0.0, 0.0]],
+        dtype=float,
+    )
+    domain = Box(((-5.0, 15.0), (-5.0, 5.0), (-5.0, 5.0)))
+
+    def fake_fit_power_weights(points, constraints, **kwargs):
+        if constraints.n_constraints == 3:
+            weights = np.array([10.0, 12.0, 30.0, 28.0], dtype=float)
+        else:
+            weights = np.array([-1.0, 1.0, 1.0, -1.0], dtype=float)
+        radii, shift = weights_to_radii(weights)
+        return PowerWeightFitResult(
+            status='optimal',
+            hard_feasible=True,
+            weights=weights,
+            radii=radii,
+            weight_shift=shift,
+            measurement=constraints.measurement,
+            target=constraints.target.copy(),
+            predicted=np.zeros(constraints.n_constraints, dtype=float),
+            predicted_fraction=np.zeros(constraints.n_constraints, dtype=float),
+            predicted_position=np.zeros(constraints.n_constraints, dtype=float),
+            residuals=np.zeros(constraints.n_constraints, dtype=float),
+            rms_residual=0.0,
+            max_residual=0.0,
+            used_shifts=constraints.shifts.copy(),
+            solver='analytic',
+            n_iter=0,
+            converged=True,
+            conflict=None,
+            warnings=tuple(),
+        )
+
+    def fake_match_realized_pairs(*args, **kwargs):
+        same = np.array([True, True, False], dtype=bool)
+        return RealizedPairDiagnostics(
+            realized=same.copy(),
+            unrealized=(2,),
+            realized_same_shift=same.copy(),
+            realized_other_shift=np.zeros(3, dtype=bool),
+            realized_shifts=(((0, 0, 0),), ((0, 0, 0),), tuple()),
+            endpoint_i_empty=np.zeros(3, dtype=bool),
+            endpoint_j_empty=np.zeros(3, dtype=bool),
+            boundary_measure=None,
+            cells=None,
+            tessellation_diagnostics=None,
+            unaccounted_pairs=tuple(),
+            warnings=tuple(),
+        )
+
+    monkeypatch.setattr(active_mod, 'fit_power_weights', fake_fit_power_weights)
+    monkeypatch.setattr(active_mod, 'match_realized_pairs', fake_match_realized_pairs)
+
+    res = active_mod.solve_self_consistent_power_weights(
+        pts,
+        [(0, 1, 0.5), (2, 3, 0.5), (0, 2, 0.5)],
+        measurement='fraction',
+        domain=domain,
+        options=ActiveSetOptions(add_after=1, drop_after=1, max_iter=5),
+        connectivity_check='diagnose',
+        unaccounted_pair_check='diagnose',
+    )
+
+    assert res.termination == 'self_consistent'
+    assert np.allclose(res.fit.weights, np.array([10.0, 12.0, 30.0, 28.0]))
+    assert np.allclose(res.fit.weights[:2], np.array([10.0, 12.0]))
+    assert np.allclose(res.fit.weights[2:], np.array([30.0, 28.0]))

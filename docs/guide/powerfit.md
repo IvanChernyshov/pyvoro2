@@ -115,7 +115,6 @@ fit = pv.fit_power_weights(
     points,
     constraints,
     model=model,
-    r_min=1.0,
 )
 ```
 
@@ -142,6 +141,24 @@ Both low-level fits and active-set results also provide `to_records(...)` helper
 that turn per-constraint diagnostics into plain Python rows for downstream
 packages, table exporters, or custom reporting.
 
+For radii output, 0.6.1 makes the gauge choice explicit:
+
+- by default, `weights_to_radii(...)` uses the minimal additive shift that makes
+  all returned radii non-negative;
+- `r_min=` remains available as a compatibility-oriented convenience when you
+  want a specific minimum radius;
+- `weight_shift=` lets downstream code request one explicit global shift
+  directly.
+
+For disconnected fits, the additive gauge is now also explicit rather than
+anchor-order dependent:
+
+- standalone fits center each disconnected effective component to mean zero;
+- if a zero-strength regularization reference is supplied, each component is
+  shifted to the reference mean on that component;
+- `connectivity_check='none'|'diagnose'|'warn'|'raise'` controls whether these
+  underdetermined cases are only reported, warned about, or raised as errors.
+
 ## Step 4: check which pairs are actually realized
 
 A requested pairwise separator is not automatically a realized face in the full
@@ -156,6 +173,7 @@ realized = pv.match_realized_pairs(
     constraints=constraints,
     return_boundary_measure=True,
     return_tessellation_diagnostics=True,
+    unaccounted_pair_check='warn',
 )
 ```
 
@@ -167,6 +185,8 @@ This returns purely geometric diagnostics:
 - whether one of the endpoint cells is empty,
 - an optional boundary measure of the matched boundary
   (**face area** in 3D, **edge length** in 2D),
+- any realized-but-candidate-absent unordered point pairs through
+  `unaccounted_pairs`,
 - and optional tessellation-wide diagnostics.
 
 ## Step 5: solve the self-consistent active-set problem
@@ -216,14 +236,20 @@ Useful fields include:
 
 - `result.constraints`: the resolved pair set used throughout the solve,
 - `result.active_mask`: final active-set membership,
-- `result.realized`: realized-face matching diagnostics,
+- `result.realized`: realized-face matching diagnostics, including
+  `unaccounted_pairs` when the final tessellation realizes candidate-absent
+  pairs,
+- `result.connectivity`: candidate-graph and active-graph connectivity
+  diagnostics plus the gauge-policy description used for disconnected
+  components,
 - `result.diagnostics`: per-constraint targets, predictions, residuals,
   endpoint-empty flags, boundary measure, toggle counts, and generic status
   labels,
 - `result.rms_residual_all` / `result.max_residual_all`: summaries over **all**
   candidate constraints,
 - `result.tessellation_diagnostics`: final tessellation-wide checks,
-- `result.marginal_constraints`: indices of toggling / cycle / wrong-shift pairs.
+- `result.marginal_constraints`: indices of toggling / cycle / wrong-shift
+  pairs.
 
 Status labels are intentionally generic, for example:
 
@@ -294,7 +320,7 @@ The main current restriction is geometric, not algebraic:
 - 2D currently supports `Box` and rectangular `RectangularCell`;
 - there is **no** planar oblique-periodic `PeriodicCell` yet.
 
-### Objective-model scope for 0.6.0
+### Objective-model scope for 0.6.1
 
 The 0.6.0 series intentionally keeps the built-in objective family compact:
 

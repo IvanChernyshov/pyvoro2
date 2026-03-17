@@ -21,7 +21,12 @@ from .active import (
     SelfConsistentPowerFitResult,
     solve_self_consistent_power_weights,
 )
-from .realize import RealizedPairDiagnostics, match_realized_pairs
+from .realize import (
+    RealizedPairDiagnostics,
+    UnaccountedRealizedPair,
+    UnaccountedRealizedPairError,
+    match_realized_pairs,
+)
 from .report import (
     build_active_set_report,
     build_fit_report,
@@ -30,6 +35,9 @@ from .report import (
     write_report_json,
 )
 from .solver import (
+    ConnectivityDiagnostics,
+    ConnectivityDiagnosticsError,
+    ConstraintGraphDiagnostics,
     HardConstraintConflict,
     HardConstraintConflictTerm,
     PowerWeightFitResult,
@@ -50,10 +58,15 @@ __all__ = [
     'ReciprocalBoundaryPenalty',
     'L2Regularization',
     'FitModel',
+    'ConstraintGraphDiagnostics',
+    'ConnectivityDiagnostics',
+    'ConnectivityDiagnosticsError',
     'HardConstraintConflictTerm',
     'HardConstraintConflict',
     'PowerWeightFitResult',
     'RealizedPairDiagnostics',
+    'UnaccountedRealizedPair',
+    'UnaccountedRealizedPairError',
     'build_fit_report',
     'build_realized_report',
     'build_active_set_report',

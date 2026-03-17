@@ -27,6 +27,8 @@ from ..planar.domains import Box as Box2D, RectangularCell
 
 ShiftTuple = tuple[int, ...]
 MeasureKey = tuple[int, int, ShiftTuple]
+PairKey = tuple[int, int]
+CanonicalMeasureKey = tuple[int, int, ShiftTuple]
 Domain3D = Box3D | OrthorhombicCell | PeriodicCell
 Domain2D = Box2D | RectangularCell
 DomainAny = Domain2D | Domain3D
@@ -52,6 +54,46 @@ def _supported_realization_dim(constraints: PairBisectorConstraints) -> None:
 
 
 @dataclass(frozen=True, slots=True)
+class UnaccountedRealizedPair:
+    """One realized internal boundary whose unordered pair was not supplied."""
+
+    site_i: int
+    site_j: int
+    realized_shifts: tuple[ShiftTuple, ...]
+    boundary_measure: float | None = None
+
+    def to_record(self, *, ids: np.ndarray | None = None) -> dict[str, object]:
+        """Return a plain-Python record for the unaccounted pair."""
+
+        if ids is None:
+            site_i: object = int(self.site_i)
+            site_j: object = int(self.site_j)
+        else:
+            site_i = _plain_value(ids[int(self.site_i)])
+            site_j = _plain_value(ids[int(self.site_j)])
+        return {
+            'site_i': site_i,
+            'site_j': site_j,
+            'realized_shifts': [
+                tuple(int(v) for v in shift) for shift in self.realized_shifts
+            ],
+            'boundary_measure': self.boundary_measure,
+        }
+
+
+class UnaccountedRealizedPairError(ValueError):
+    """Raised when unaccounted_pair_check='raise' finds absent pairs."""
+
+    def __init__(
+        self,
+        message: str,
+        unaccounted_pairs: tuple[UnaccountedRealizedPair, ...],
+    ) -> None:
+        super().__init__(message)
+        self.unaccounted_pairs = unaccounted_pairs
+
+
+@dataclass(frozen=True, slots=True)
 class RealizedPairDiagnostics:
     """Diagnostics for matching candidate constraints to realized boundaries."""
 
@@ -65,6 +107,8 @@ class RealizedPairDiagnostics:
     boundary_measure: np.ndarray | None
     cells: list[dict[str, Any]] | None
     tessellation_diagnostics: TessellationDiagnosticsAny | None
+    unaccounted_pairs: tuple[UnaccountedRealizedPair, ...] = ()
+    warnings: tuple[str, ...] = ()
 
     def to_records(
         self,
@@ -106,6 +150,15 @@ class RealizedPairDiagnostics:
             )
         return tuple(rows)
 
+    def unaccounted_records(
+        self,
+        *,
+        ids: np.ndarray | None = None,
+    ) -> tuple[dict[str, object], ...]:
+        """Return one record per realized-but-unaccounted unordered pair."""
+
+        return tuple(pair.to_record(ids=ids) for pair in self.unaccounted_pairs)
+
     def to_report(
         self,
         constraints: PairBisectorConstraints,
@@ -129,6 +182,7 @@ def match_realized_pairs(
     return_cells: bool = False,
     return_tessellation_diagnostics: bool = False,
     tessellation_check: Literal['none', 'diagnose', 'warn', 'raise'] = 'diagnose',
+    unaccounted_pair_check: Literal['none', 'diagnose', 'warn', 'raise'] = 'diagnose',
 ) -> RealizedPairDiagnostics:
     """Determine which resolved pair constraints correspond to realized boundaries.
 
@@ -145,6 +199,10 @@ def match_realized_pairs(
     if constraints.dim != pts.shape[1]:
         raise ValueError('points do not match the resolved constraint dimension')
     _supported_realization_dim(constraints)
+    if unaccounted_pair_check not in ('none', 'diagnose', 'warn', 'raise'):
+        raise ValueError(
+            'unaccounted_pair_check must be none, diagnose, warn, or raise'
+        )
 
     dim = int(pts.shape[1])
     if dim == 2:
@@ -228,6 +286,22 @@ def match_realized_pairs(
             elif key_r in measure_by_pair_shift:
                 boundary_measure[k] = measure_by_pair_shift[key_r]
 
+    warning_messages: list[str] = []
+    unaccounted_pairs: tuple[UnaccountedRealizedPair, ...] = tuple()
+    if unaccounted_pair_check != 'none':
+        unaccounted_pairs = _collect_unaccounted_pairs(
+            constraints,
+            shifts_by_pair=shifts_by_pair,
+            measure_by_pair_shift=measure_by_pair_shift,
+            include_boundary_measure=return_boundary_measure,
+        )
+        if unaccounted_pairs:
+            message = _format_unaccounted_pairs_message(unaccounted_pairs)
+            if unaccounted_pair_check == 'warn':
+                warning_messages.append(message)
+            elif unaccounted_pair_check == 'raise':
+                raise UnaccountedRealizedPairError(message, unaccounted_pairs)
+
     return RealizedPairDiagnostics(
         realized=realized,
         unrealized=tuple(unrealized),
@@ -239,6 +313,8 @@ def match_realized_pairs(
         boundary_measure=boundary_measure,
         cells=cells if return_cells else None,
         tessellation_diagnostics=tessellation_diagnostics,
+        unaccounted_pairs=unaccounted_pairs,
+        warnings=tuple(warning_messages),
     )
 
 
@@ -346,6 +422,86 @@ def _compute_planar_cells(
     if not return_tessellation_diagnostics:
         tessellation_diagnostics = None
     return cells, tessellation_diagnostics, bool(periodic)
+
+
+def _canonical_pair_and_shift(
+    site_i: int,
+    site_j: int,
+    shift: ShiftTuple,
+) -> tuple[PairKey, ShiftTuple]:
+    if site_i < site_j:
+        return (int(site_i), int(site_j)), tuple(int(v) for v in shift)
+    return (int(site_j), int(site_i)), tuple(-int(v) for v in shift)
+
+
+def _collect_unaccounted_pairs(
+    constraints: PairBisectorConstraints,
+    *,
+    shifts_by_pair: dict[tuple[int, int], set[ShiftTuple]],
+    measure_by_pair_shift: dict[MeasureKey, float],
+    include_boundary_measure: bool,
+) -> tuple[UnaccountedRealizedPair, ...]:
+    candidate_pairs = {
+        (int(min(i, j)), int(max(i, j)))
+        for i, j in zip(constraints.i.tolist(), constraints.j.tolist())
+    }
+
+    canonical_shifts: dict[PairKey, set[ShiftTuple]] = {}
+    canonical_measure: dict[CanonicalMeasureKey, float] = {}
+    for (site_i, site_j), shifts in shifts_by_pair.items():
+        for shift in shifts:
+            pair_key, pair_shift = _canonical_pair_and_shift(site_i, site_j, shift)
+            canonical_shifts.setdefault(pair_key, set()).add(pair_shift)
+            if include_boundary_measure:
+                measure_key = (int(site_i), int(site_j), tuple(int(v) for v in shift))
+                canonical_key = (pair_key[0], pair_key[1], pair_shift)
+                if (
+                    measure_key in measure_by_pair_shift
+                    and canonical_key not in canonical_measure
+                ):
+                    canonical_measure[canonical_key] = (
+                        measure_by_pair_shift[measure_key]
+                    )
+
+    rows: list[UnaccountedRealizedPair] = []
+    for pair_key in sorted(canonical_shifts):
+        if pair_key[0] == pair_key[1]:
+            continue
+        if pair_key in candidate_pairs:
+            continue
+        shifts = tuple(sorted(canonical_shifts[pair_key]))
+        total_measure = None
+        if include_boundary_measure:
+            total_measure = float(
+                sum(
+                    canonical_measure.get((pair_key[0], pair_key[1], shift), 0.0)
+                    for shift in shifts
+                )
+            )
+        rows.append(
+            UnaccountedRealizedPair(
+                site_i=pair_key[0],
+                site_j=pair_key[1],
+                realized_shifts=shifts,
+                boundary_measure=total_measure,
+            )
+        )
+    return tuple(rows)
+
+
+def _format_unaccounted_pairs_message(
+    unaccounted_pairs: tuple[UnaccountedRealizedPair, ...],
+) -> str:
+    preview = ', '.join(
+        f'({pair.site_i}, {pair.site_j})' for pair in unaccounted_pairs[:5]
+    )
+    extra = ''
+    if len(unaccounted_pairs) > 5:
+        extra = f' and {len(unaccounted_pairs) - 5} more'
+    return (
+        'realized tessellation contains internal boundaries for candidate-absent '
+        f'point pairs: {preview}{extra}'
+    )
 
 
 def _collect_boundary_maps(
