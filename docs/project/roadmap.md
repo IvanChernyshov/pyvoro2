@@ -30,6 +30,8 @@ mis-specified candidate graphs:
   component identifiability;
 - disconnected-component gauge handling now follows explicit component-mean or
   previous-iterate alignment policies rather than arbitrary anchor order;
+- self-consistent results now distinguish final-state diagnostics from
+  optimization-path diagnostics through `path_summary` and richer history rows;
 - the weight-to-radius conversion path now exposes `weight_shift=` directly
   instead of relying only on the older minimum-radius convention.
 
@@ -50,9 +52,9 @@ part of the public contract.
 ### Visualization usability
 
 The optional viewers (`pyvoro2[viz]` / `pyvoro2[viz2d]`) are intended as
-lightweight debugging and exploration tools. Future work is expected to focus
-on usability and examples, not on making visualization a heavy core
-dependency.
+lightweight debugging and exploration tools. The current direction is to keep
+them simple but make the examples and notebook workflows more polished, rather
+than turning visualization into a heavy core dependency.
 
 ## Release stability
 

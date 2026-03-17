@@ -17,6 +17,7 @@ from .model import (
 from .active import (
     ActiveSetIteration,
     ActiveSetOptions,
+    ActiveSetPathSummary,
     PairConstraintDiagnostics,
     SelfConsistentPowerFitResult,
     solve_self_consistent_power_weights,
@@ -74,6 +75,7 @@ __all__ = [
     'write_report_json',
     'ActiveSetOptions',
     'ActiveSetIteration',
+    'ActiveSetPathSummary',
     'PairConstraintDiagnostics',
     'SelfConsistentPowerFitResult',
     'fit_power_weights',

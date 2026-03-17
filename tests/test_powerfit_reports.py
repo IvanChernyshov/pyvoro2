@@ -87,6 +87,8 @@ def test_active_set_report_collects_nested_diagnostics_and_history():
     assert report['diagnostics'][0]['site_j'] == 200
     assert report['history'] is not None
     assert len(report['history']) >= 1
+    assert report['path_summary'] is not None
+    assert report['history'][0]['n_active_fit'] is not None
     assert report['tessellation_diagnostics'] is not None
     assert report_via_method == report
 
@@ -289,3 +291,44 @@ def test_active_set_report_uses_final_active_subset_and_top_level_connectivity()
         (row['site_i'], row['site_j'])
         for row in report['realized']['unaccounted_pairs']
     } == {(20, 30)}
+
+
+def test_active_set_report_includes_transient_path_summary_fields():
+    from pyvoro2 import (
+        ActiveSetOptions,
+        Box,
+        build_active_set_report,
+        solve_self_consistent_power_weights,
+    )
+
+    pts = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
+        dtype=float,
+    )
+    box = Box(((-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0)))
+    result = solve_self_consistent_power_weights(
+        pts,
+        [(0, 1, 0.5), (1, 2, 0.5), (0, 2, 0.5)],
+        measurement='fraction',
+        domain=box,
+        active0=np.array([False, False, False]),
+        options=ActiveSetOptions(add_after=1, drop_after=1, max_iter=6),
+        return_history=True,
+        connectivity_check='diagnose',
+        unaccounted_pair_check='diagnose',
+    )
+
+    report = build_active_set_report(result)
+
+    assert report['path_summary'] is not None
+    assert report['path_summary']['ever_fit_active_graph_disconnected'] is True
+    assert report['path_summary']['max_fit_active_graph_components'] == 3
+    assert report['path_summary']['first_fit_active_graph_disconnected_iter'] == 1
+    assert report['path_summary']['ever_unaccounted_pairs'] is False
+    assert report['history'] is not None
+    assert report['history'][0]['n_active_fit'] == 0
+    assert report['history'][0]['n_active'] == 2
+    assert report['history'][0]['fit_active_graph_n_components'] == 3
+    assert report['history'][0]['fit_active_effective_graph_n_components'] == 3
+    assert report['history'][0]['fit_active_offsets_identified_by_data'] is False
+    assert report['history'][0]['n_unaccounted_pairs'] == 0

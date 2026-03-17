@@ -83,6 +83,7 @@ nav:
       - notebooks/05_visualization.ipynb
       - notebooks/06_powerfit_reports.ipynb
       - notebooks/07_powerfit_infeasibility.ipynb
+      - notebooks/08_powerfit_active_path.ipynb
   - API reference:
       - Spatial (3D):
           - Domains: reference/domains.md

@@ -87,6 +87,46 @@ def _connectivity_record(
     }
 
 
+def _path_summary_record(summary: Any | None) -> dict[str, object] | None:
+    if summary is None:
+        return None
+    return {
+        'n_iterations': int(summary.n_iterations),
+        'ever_fit_active_graph_disconnected': bool(
+            summary.ever_fit_active_graph_disconnected
+        ),
+        'ever_fit_active_effective_graph_disconnected': bool(
+            summary.ever_fit_active_effective_graph_disconnected
+        ),
+        'ever_fit_active_offsets_unidentified_by_data': bool(
+            summary.ever_fit_active_offsets_unidentified_by_data
+        ),
+        'ever_unaccounted_pairs': bool(summary.ever_unaccounted_pairs),
+        'max_fit_active_graph_components': int(
+            summary.max_fit_active_graph_components
+        ),
+        'max_fit_active_effective_graph_components': int(
+            summary.max_fit_active_effective_graph_components
+        ),
+        'max_n_unaccounted_pairs': int(summary.max_n_unaccounted_pairs),
+        'first_fit_active_graph_disconnected_iter': (
+            None
+            if summary.first_fit_active_graph_disconnected_iter is None
+            else int(summary.first_fit_active_graph_disconnected_iter)
+        ),
+        'first_fit_active_effective_graph_disconnected_iter': (
+            None
+            if summary.first_fit_active_effective_graph_disconnected_iter is None
+            else int(summary.first_fit_active_effective_graph_disconnected_iter)
+        ),
+        'first_unaccounted_pairs_iter': (
+            None
+            if summary.first_unaccounted_pairs_iter is None
+            else int(summary.first_unaccounted_pairs_iter)
+        ),
+    }
+
+
 def _tessellation_record(diagnostics: Any | None) -> dict[str, object] | None:
     if diagnostics is None:
         return None
@@ -292,6 +332,31 @@ def build_active_set_report(
                     'rms_residual_all': float(row.rms_residual_all),
                     'max_residual_all': float(row.max_residual_all),
                     'weight_step_norm': float(row.weight_step_norm),
+                    'n_active_fit': (
+                        None
+                        if row.n_active_fit is None
+                        else int(row.n_active_fit)
+                    ),
+                    'fit_active_graph_n_components': (
+                        None
+                        if row.fit_active_graph_n_components is None
+                        else int(row.fit_active_graph_n_components)
+                    ),
+                    'fit_active_effective_graph_n_components': (
+                        None
+                        if row.fit_active_effective_graph_n_components is None
+                        else int(row.fit_active_effective_graph_n_components)
+                    ),
+                    'fit_active_offsets_identified_by_data': (
+                        None
+                        if row.fit_active_offsets_identified_by_data is None
+                        else bool(row.fit_active_offsets_identified_by_data)
+                    ),
+                    'n_unaccounted_pairs': (
+                        None
+                        if row.n_unaccounted_pairs is None
+                        else int(row.n_unaccounted_pairs)
+                    ),
                 }
             )
 
@@ -330,6 +395,7 @@ def build_active_set_report(
         'diagnostics': diagnostic_rows,
         'marginal_records': marginal_rows,
         'history': history_rows,
+        'path_summary': _path_summary_record(result.path_summary),
         'tessellation_diagnostics': _tessellation_record(
             result.tessellation_diagnostics
         ),

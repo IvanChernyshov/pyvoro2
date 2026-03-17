@@ -69,8 +69,11 @@ class ConnectivityDiagnosticsError(ValueError):
         message: str,
         diagnostics: ConnectivityDiagnostics,
     ) -> None:
-        super().__init__(message)
+        super().__init__(message, diagnostics)
         self.diagnostics = diagnostics
+
+    def __str__(self) -> str:
+        return str(self.args[0])
 
 
 @dataclass(frozen=True, slots=True)

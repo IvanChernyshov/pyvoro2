@@ -39,7 +39,11 @@ Implemented focus:
   `r_min=` retained as a compatibility-oriented convenience rather than the
   preferred mathematical framing;
 - plain-Python report helpers now serialize both connectivity diagnostics and
-  realized-but-unaccounted pair diagnostics.
+  realized-but-unaccounted pair diagnostics;
+- self-consistent solves now retain optimization-path diagnostics through a
+  compact `path_summary` object plus richer optional per-iteration history rows;
+- notebook/documentation examples are refreshed around explicit gauge language,
+  path diagnostics, and the lightweight planar plotting helper.
 
 The current preferred default policy for disconnected components is now the
 implemented behavior:

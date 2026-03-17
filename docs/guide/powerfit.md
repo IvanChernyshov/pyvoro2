@@ -159,6 +159,12 @@ anchor-order dependent:
 - `connectivity_check='none'|'diagnose'|'warn'|'raise'` controls whether these
   underdetermined cases are only reported, warned about, or raised as errors.
 
+Connectivity is computed on the graph of **site unknowns**, not on a graph of
+periodic images. A periodic shift changes the geometry of one constraint row and
+of realized-boundary matching, but it does not create an additional fitted
+unknown. This is why interpenetrating periodic nets remain disconnected unless
+some candidate row actually couples their site indices.
+
 ## Step 4: check which pairs are actually realized
 
 A requested pairwise separator is not automatically a realized face in the full
@@ -239,9 +245,18 @@ Useful fields include:
 - `result.realized`: realized-face matching diagnostics, including
   `unaccounted_pairs` when the final tessellation realizes candidate-absent
   pairs,
-- `result.connectivity`: candidate-graph and active-graph connectivity
+- `result.connectivity`: final candidate-graph and active-graph connectivity
   diagnostics plus the gauge-policy description used for disconnected
   components,
+- `result.path_summary`: compact optimization-path diagnostics that answer
+  questions such as whether the fit-active graph was **ever** disconnected,
+  whether active-component offsets were ever not identified by the pairwise
+  data, and whether candidate-absent realized pairs ever occurred during the
+  outer iterations,
+- `result.history`: optional per-iteration rows; each row distinguishes the
+  fit-active mask (`n_active_fit`) from the post-toggle mask used for the next
+  iteration (`n_active`), and also records fit-active component counts and the
+  number of realized-but-unaccounted pairs seen on that iteration,
 - `result.diagnostics`: per-constraint targets, predictions, residuals,
   endpoint-empty flags, boundary measure, toggle counts, and generic status
   labels,
@@ -250,6 +265,12 @@ Useful fields include:
 - `result.tessellation_diagnostics`: final tessellation-wide checks,
 - `result.marginal_constraints`: indices of toggling / cycle / wrong-shift
   pairs.
+
+Transient path diagnostics are intentionally **inspectable** rather than
+noisy: final-state `connectivity_check=` / `unaccounted_pair_check=` policies
+still control warnings or exceptions, while `result.path_summary` and
+`result.history` expose optimization-path events without turning every transient
+component split into a default warning.
 
 Status labels are intentionally generic, for example:
 
@@ -322,7 +343,7 @@ The main current restriction is geometric, not algebraic:
 
 ### Objective-model scope for 0.6.1
 
-The 0.6.0 series intentionally keeps the built-in objective family compact:
+The 0.6.1 line still keeps the built-in objective family compact:
 
 - mismatch terms: `SquaredLoss`, `HuberLoss`
 - hard feasibility: `Interval`, `FixedValue`
@@ -335,7 +356,7 @@ hard-feasibility checks, residual diagnostics, and solver behavior easy to
 reason about.
 
 Additional mismatch or penalty families should wait until downstream packages
-validate a concrete need for them. In particular, 0.6.0 does **not** try to
+validate a concrete need for them. In particular, 0.6.1 does **not** try to
 freeze an open-ended callback API for arbitrary user-defined objectives.
 
 ## Worked example notebooks

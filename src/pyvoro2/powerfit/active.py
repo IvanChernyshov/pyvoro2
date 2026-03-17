@@ -90,6 +90,43 @@ class ActiveSetIteration:
     rms_residual_all: float
     max_residual_all: float
     weight_step_norm: float
+    n_active_fit: int | None = None
+    fit_active_graph_n_components: int | None = None
+    fit_active_effective_graph_n_components: int | None = None
+    fit_active_offsets_identified_by_data: bool | None = None
+    n_unaccounted_pairs: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ActiveSetPathSummary:
+    """Compact summary of transient active-set path diagnostics."""
+
+    n_iterations: int
+    ever_fit_active_graph_disconnected: bool
+    ever_fit_active_effective_graph_disconnected: bool
+    ever_fit_active_offsets_unidentified_by_data: bool
+    ever_unaccounted_pairs: bool
+    max_fit_active_graph_components: int
+    max_fit_active_effective_graph_components: int
+    max_n_unaccounted_pairs: int
+    first_fit_active_graph_disconnected_iter: int | None = None
+    first_fit_active_effective_graph_disconnected_iter: int | None = None
+    first_unaccounted_pairs_iter: int | None = None
+
+
+@dataclass(slots=True)
+class _ActiveSetPathAccumulator:
+    n_iterations: int = 0
+    ever_fit_active_graph_disconnected: bool = False
+    ever_fit_active_effective_graph_disconnected: bool = False
+    ever_fit_active_offsets_unidentified_by_data: bool = False
+    ever_unaccounted_pairs: bool = False
+    max_fit_active_graph_components: int = 0
+    max_fit_active_effective_graph_components: int = 0
+    max_n_unaccounted_pairs: int = 0
+    first_fit_active_graph_disconnected_iter: int | None = None
+    first_fit_active_effective_graph_disconnected_iter: int | None = None
+    first_unaccounted_pairs_iter: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,7 +221,8 @@ class SelfConsistentPowerFitResult:
         TessellationDiagnostics2D | TessellationDiagnostics3D | None
     )
     history: tuple[ActiveSetIteration, ...] | None
-    warnings: tuple[str, ...]
+    path_summary: ActiveSetPathSummary | None = None
+    warnings: tuple[str, ...] = ()
     connectivity: ConnectivityDiagnostics | None = None
 
     def to_records(self, *, use_ids: bool = False) -> tuple[dict[str, object], ...]:
@@ -292,6 +330,8 @@ def solve_self_consistent_power_weights(
     first_realized_iter = np.full(m, -1, dtype=np.int64)
     last_realized_iter = np.full(m, -1, dtype=np.int64)
     history_rows: list[ActiveSetIteration] = []
+    path_acc = _ActiveSetPathAccumulator()
+    gauge_policy = _self_consistent_gauge_policy_description()
     prev_weights_eval: np.ndarray | None = None
     prev_realized_same: np.ndarray | None = None
     seen_masks: dict[bytes, int] = {active.tobytes(): 0}
@@ -368,7 +408,7 @@ def solve_self_consistent_power_weights(
                     resolved,
                     active,
                     model=model,
-                    gauge_policy=_self_consistent_gauge_policy_description(),
+                    gauge_policy=gauge_policy,
                 )
                 _apply_connectivity_policy(
                     connectivity_check,
@@ -390,6 +430,7 @@ def solve_self_consistent_power_weights(
                 max_residual_all=float('nan'),
                 tessellation_diagnostics=None,
                 history=tuple(history_rows) if return_history else None,
+                path_summary=_finalize_path_summary(path_acc),
                 warnings=tuple(warnings_list),
                 connectivity=connectivity,
             )
@@ -410,6 +451,12 @@ def solve_self_consistent_power_weights(
             weights_eval = weights_exact
             step_norm = 0.0
 
+        fit_active_connectivity = _build_active_set_connectivity_diagnostics(
+            resolved,
+            active,
+            model=model,
+            gauge_policy=gauge_policy,
+        )
         radii_eval, _ = weights_to_radii(
             weights_eval,
             r_min=r_min,
@@ -424,9 +471,16 @@ def solve_self_consistent_power_weights(
             return_cells=False,
             return_tessellation_diagnostics=False,
             tessellation_check='none',
-            unaccounted_pair_check='none',
+            unaccounted_pair_check='diagnose',
         )
         last_diag = diag
+        n_unaccounted_pairs = len(diag.unaccounted_pairs)
+        _record_path_iteration(
+            path_acc,
+            iteration=outer_iter,
+            connectivity=fit_active_connectivity,
+            n_unaccounted_pairs=n_unaccounted_pairs,
+        )
         realized_same = diag.realized_same_shift
         if prev_realized_same is not None:
             realized_toggle_count += prev_realized_same != realized_same
@@ -479,6 +533,21 @@ def solve_self_consistent_power_weights(
                 if residuals.size
                 else 0.0,
                 weight_step_norm=step_norm,
+                n_active_fit=int(np.count_nonzero(active)),
+                fit_active_graph_n_components=(
+                    fit_active_connectivity.active_graph.n_components
+                    if fit_active_connectivity.active_graph is not None
+                    else None
+                ),
+                fit_active_effective_graph_n_components=(
+                    fit_active_connectivity.active_effective_graph.n_components
+                    if fit_active_connectivity.active_effective_graph is not None
+                    else None
+                ),
+                fit_active_offsets_identified_by_data=(
+                    fit_active_connectivity.active_offsets_identified_by_data
+                ),
+                n_unaccounted_pairs=n_unaccounted_pairs,
             )
         )
 
@@ -636,7 +705,7 @@ def solve_self_consistent_power_weights(
             resolved,
             active,
             model=model,
-            gauge_policy=_self_consistent_gauge_policy_description(),
+            gauge_policy=gauge_policy,
         )
         _apply_connectivity_policy(
             connectivity_check,
@@ -659,6 +728,7 @@ def solve_self_consistent_power_weights(
         max_residual_all=max_residual_all,
         tessellation_diagnostics=final_realized.tessellation_diagnostics,
         history=tuple(history_rows) if return_history else None,
+        path_summary=_finalize_path_summary(path_acc),
         warnings=tuple(warnings_list),
         connectivity=connectivity,
     )
@@ -697,6 +767,94 @@ def _self_consistent_gauge_policy_description() -> str:
         'each connected active effective component is aligned to the previous '
         'iterate; the first iterate falls back to the standalone component-mean '
         'gauge'
+    )
+
+
+def _record_path_iteration(
+    acc: _ActiveSetPathAccumulator,
+    *,
+    iteration: int,
+    connectivity: ConnectivityDiagnostics,
+    n_unaccounted_pairs: int,
+) -> None:
+    active_graph = connectivity.active_graph
+    active_effective_graph = connectivity.active_effective_graph
+    active_offsets_identified = connectivity.active_offsets_identified_by_data
+
+    active_graph_components = (
+        0 if active_graph is None else int(active_graph.n_components)
+    )
+    active_effective_components = (
+        0
+        if active_effective_graph is None
+        else int(active_effective_graph.n_components)
+    )
+
+    acc.n_iterations += 1
+    acc.max_fit_active_graph_components = max(
+        acc.max_fit_active_graph_components,
+        active_graph_components,
+    )
+    acc.max_fit_active_effective_graph_components = max(
+        acc.max_fit_active_effective_graph_components,
+        active_effective_components,
+    )
+    acc.max_n_unaccounted_pairs = max(
+        acc.max_n_unaccounted_pairs,
+        int(n_unaccounted_pairs),
+    )
+
+    if active_graph_components > 1:
+        acc.ever_fit_active_graph_disconnected = True
+        if acc.first_fit_active_graph_disconnected_iter is None:
+            acc.first_fit_active_graph_disconnected_iter = int(iteration)
+    if active_effective_components > 1:
+        acc.ever_fit_active_effective_graph_disconnected = True
+        if acc.first_fit_active_effective_graph_disconnected_iter is None:
+            acc.first_fit_active_effective_graph_disconnected_iter = int(iteration)
+    if active_offsets_identified is False:
+        acc.ever_fit_active_offsets_unidentified_by_data = True
+    if int(n_unaccounted_pairs) > 0:
+        acc.ever_unaccounted_pairs = True
+        if acc.first_unaccounted_pairs_iter is None:
+            acc.first_unaccounted_pairs_iter = int(iteration)
+
+
+def _finalize_path_summary(
+    acc: _ActiveSetPathAccumulator,
+) -> ActiveSetPathSummary:
+    return ActiveSetPathSummary(
+        n_iterations=int(acc.n_iterations),
+        ever_fit_active_graph_disconnected=bool(
+            acc.ever_fit_active_graph_disconnected
+        ),
+        ever_fit_active_effective_graph_disconnected=bool(
+            acc.ever_fit_active_effective_graph_disconnected
+        ),
+        ever_fit_active_offsets_unidentified_by_data=bool(
+            acc.ever_fit_active_offsets_unidentified_by_data
+        ),
+        ever_unaccounted_pairs=bool(acc.ever_unaccounted_pairs),
+        max_fit_active_graph_components=int(acc.max_fit_active_graph_components),
+        max_fit_active_effective_graph_components=int(
+            acc.max_fit_active_effective_graph_components
+        ),
+        max_n_unaccounted_pairs=int(acc.max_n_unaccounted_pairs),
+        first_fit_active_graph_disconnected_iter=(
+            None
+            if acc.first_fit_active_graph_disconnected_iter is None
+            else int(acc.first_fit_active_graph_disconnected_iter)
+        ),
+        first_fit_active_effective_graph_disconnected_iter=(
+            None
+            if acc.first_fit_active_effective_graph_disconnected_iter is None
+            else int(acc.first_fit_active_effective_graph_disconnected_iter)
+        ),
+        first_unaccounted_pairs_iter=(
+            None
+            if acc.first_unaccounted_pairs_iter is None
+            else int(acc.first_unaccounted_pairs_iter)
+        ),
     )
 
 

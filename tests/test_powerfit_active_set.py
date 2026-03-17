@@ -387,3 +387,117 @@ def test_self_consistent_solver_preserves_active_component_offsets_on_final_refi
     assert np.allclose(res.fit.weights, np.array([10.0, 12.0, 30.0, 28.0]))
     assert np.allclose(res.fit.weights[:2], np.array([10.0, 12.0]))
     assert np.allclose(res.fit.weights[2:], np.array([30.0, 28.0]))
+
+
+def test_self_consistent_solver_reports_transient_path_disconnectivity():
+    from pyvoro2 import ActiveSetOptions, Box, solve_self_consistent_power_weights
+
+    pts = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
+        dtype=float,
+    )
+    box = Box(((-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0)))
+    res = solve_self_consistent_power_weights(
+        pts,
+        [(0, 1, 0.5), (1, 2, 0.5), (0, 2, 0.5)],
+        measurement='fraction',
+        domain=box,
+        active0=np.array([False, False, False]),
+        options=ActiveSetOptions(add_after=1, drop_after=1, max_iter=6),
+        return_history=True,
+        connectivity_check='diagnose',
+        unaccounted_pair_check='diagnose',
+    )
+
+    assert res.path_summary is not None
+    assert res.path_summary.n_iterations == len(res.history)
+    assert res.path_summary.ever_fit_active_graph_disconnected is True
+    assert res.path_summary.ever_fit_active_effective_graph_disconnected is True
+    assert res.path_summary.ever_fit_active_offsets_unidentified_by_data is True
+    assert res.path_summary.first_fit_active_graph_disconnected_iter == 1
+    assert res.path_summary.first_fit_active_effective_graph_disconnected_iter == 1
+    assert res.path_summary.max_fit_active_graph_components == 3
+    assert res.path_summary.max_fit_active_effective_graph_components == 3
+    assert res.path_summary.ever_unaccounted_pairs is False
+    assert res.connectivity is not None
+    assert res.connectivity.active_graph is not None
+    assert res.connectivity.active_graph.n_components == 1
+    assert res.history is not None
+    assert res.history[0].n_active_fit == 0
+    assert res.history[0].n_active == 2
+    assert res.history[0].fit_active_graph_n_components == 3
+    assert res.history[0].fit_active_effective_graph_n_components == 3
+    assert res.history[0].fit_active_offsets_identified_by_data is False
+    assert res.history[0].n_unaccounted_pairs == 0
+    assert res.history[-1].fit_active_graph_n_components == 1
+
+
+def test_self_consistent_solver_tracks_transient_unaccounted_pairs(
+    monkeypatch,
+):
+    import pyvoro2.powerfit.active as active_mod
+    from pyvoro2 import ActiveSetOptions, Box
+    from pyvoro2.powerfit.realize import (
+        RealizedPairDiagnostics,
+        UnaccountedRealizedPair,
+    )
+
+    pts = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
+        dtype=float,
+    )
+    box = Box(((-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0)))
+    state = {'calls': 0}
+
+    def fake_match_realized_pairs(*args, **kwargs):
+        state['calls'] += 1
+        same = np.array([True, True], dtype=bool)
+        unaccounted = (
+            (
+                UnaccountedRealizedPair(
+                    site_i=0,
+                    site_j=2,
+                    realized_shifts=((0, 0, 0),),
+                    boundary_measure=None,
+                ),
+            )
+            if state['calls'] == 1
+            else tuple()
+        )
+        return RealizedPairDiagnostics(
+            realized=same.copy(),
+            unrealized=tuple(),
+            realized_same_shift=same.copy(),
+            realized_other_shift=np.zeros(2, dtype=bool),
+            realized_shifts=(((0, 0, 0),), ((0, 0, 0),)),
+            endpoint_i_empty=np.zeros(2, dtype=bool),
+            endpoint_j_empty=np.zeros(2, dtype=bool),
+            boundary_measure=None,
+            cells=None,
+            tessellation_diagnostics=None,
+            unaccounted_pairs=unaccounted,
+            warnings=tuple(),
+        )
+
+    monkeypatch.setattr(active_mod, 'match_realized_pairs', fake_match_realized_pairs)
+
+    res = active_mod.solve_self_consistent_power_weights(
+        pts,
+        [(0, 1, 0.5), (1, 2, 0.5)],
+        measurement='fraction',
+        domain=box,
+        options=ActiveSetOptions(add_after=1, drop_after=1, max_iter=4),
+        return_history=True,
+        connectivity_check='diagnose',
+        unaccounted_pair_check='warn',
+    )
+
+    assert res.termination == 'self_consistent'
+    assert res.path_summary is not None
+    assert res.path_summary.ever_unaccounted_pairs is True
+    assert res.path_summary.max_n_unaccounted_pairs == 1
+    assert res.path_summary.first_unaccounted_pairs_iter == 1
+    assert res.history is not None
+    assert res.history[0].n_unaccounted_pairs == 1
+    assert res.realized.unaccounted_pairs == tuple()
+    assert all('candidate-absent point pairs' not in msg for msg in res.warnings)

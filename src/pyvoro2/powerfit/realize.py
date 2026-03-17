@@ -89,8 +89,11 @@ class UnaccountedRealizedPairError(ValueError):
         message: str,
         unaccounted_pairs: tuple[UnaccountedRealizedPair, ...],
     ) -> None:
-        super().__init__(message)
+        super().__init__(message, unaccounted_pairs)
         self.unaccounted_pairs = unaccounted_pairs
+
+    def __str__(self) -> str:
+        return str(self.args[0])
 
 
 @dataclass(frozen=True, slots=True)

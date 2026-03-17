@@ -44,7 +44,9 @@ fig, ax = plot_tessellation(cells, domain=domain, show_sites=True)
 
 The 2D helper returns `(fig, ax)` and is best suited for inspecting raw planar
 output, debugging periodic edge structure, and checking that a normalized or
-power-fitted result looks qualitatively right.
+power-fitted result looks qualitatively right. When `domain=` is supplied and
+exposes rectangular `bounds`, the helper also draws a simple domain outline;
+`show_sites=True` overlays the reported cell sites.
 
 ## A minimal 3D example
 
