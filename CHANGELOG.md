@@ -11,6 +11,7 @@ The format is based on *Keep a Changelog*, and this project follows *Semantic Ve
 - Explicit realized-but-unaccounted pair diagnostics in both 3D and planar 2D power-fit realization, including public `UnaccountedRealizedPair` / `UnaccountedRealizedPairError` types and JSON/report export support.
 - Structured connectivity diagnostics for low-level fits and self-consistent active-set solves, covering unconstrained points, isolated points, connected components of candidate and active graphs, and whether relative offsets are identified by the data or only by gauge policy.
 - Active-set path diagnostics via `result.path_summary` and richer per-iteration `history` rows, so downstream code can distinguish final disconnectedness from transient component splits or transient candidate-absent realized pairs during optimization.
+- Repo-root notebook sources plus notebook-export / notebook-check tooling, distribution-content checks, and a one-shot `tools/release_check.py` helper for local publishability validation.
 
 ### Changed
 
@@ -18,6 +19,8 @@ The format is based on *Keep a Changelog*, and this project follows *Semantic Ve
 - Self-consistent active-set fitting now preserves offsets per connected component of the current active effective graph by aligning each component to the previous iterate, including the final recomputed fit returned to the user.
 - `weights_to_radii(...)` and the fitting APIs now support an explicit `weight_shift=` gauge, while keeping `r_min=` as a backward-compatible convenience rather than the primary convention.
 - Power-fit reports now serialize connectivity diagnostics, unaccounted realized pairs, realized-diagnostics warnings, and active-set path summaries through the plain-Python report helpers.
+- The example notebooks now live in a repo-root `notebooks/` directory and are exported into generated docs pages, while `README.md` and docs deployment are checked for sync in CI.
+- The package metadata now includes a convenience `pyvoro2[all]` extra for contributors who want the full optional notebook/docs/release-check stack.
 - The optional planar `plot_tessellation(...)` helper now accepts `domain=` and `show_sites=` to match the published guide examples.
 
 ### Fixed

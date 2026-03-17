@@ -18,6 +18,18 @@ honest:
 It does **not** yet promise a planar oblique-periodic analogue of the 3D
 `PeriodicCell`.
 
+### Documentation and release hygiene in 0.6.1
+
+The 0.6.1 line also cleans up the repository-facing documentation workflow:
+
+- notebooks now live at the repository root and are exported into generated
+  Markdown pages for the docs site;
+- the package metadata now exposes a convenience `pyvoro2[all]` extra for full
+  local validation;
+- repository tooling now includes notebook export checks, notebook execution,
+  README sync checks, distribution-content validation, and a single
+  `tools/release_check.py` entry point.
+
 ### Powerfit robustness in 0.6.1
 
 The 0.6.1 line hardens the inverse-fitting stack around underdetermined and

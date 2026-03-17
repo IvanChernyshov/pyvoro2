@@ -2,17 +2,27 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable, Protocol
+
+if TYPE_CHECKING:  # pragma: no cover - import only for annotations
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
+
+
+class _SupportsPlanarBounds(Protocol):
+    """Protocol for simple 2D domains that expose rectangular bounds."""
+
+    bounds: tuple[tuple[float, float], tuple[float, float]]
 
 
 def plot_tessellation(
     cells: Iterable[dict],
     *,
-    ax=None,
-    domain=None,
+    ax: Axes | None = None,
+    domain: _SupportsPlanarBounds | None = None,
     show_sites: bool = False,
     annotate_ids: bool = False,
-):
+) -> tuple[Figure, Axes]:
     """Plot planar cells using matplotlib.
 
     Args:

@@ -44,6 +44,10 @@ Implemented focus:
   compact `path_summary` object plus richer optional per-iteration history rows;
 - notebook/documentation examples are refreshed around explicit gauge language,
   path diagnostics, and the lightweight planar plotting helper.
+- repository workflow now keeps the source notebooks in a repo-root `notebooks/`
+  directory, exports them to `docs/notebooks/*.md`, exposes a convenience
+  `.[all]` extra, and provides single-command publishability checks through
+  `tools/release_check.py`.
 
 The current preferred default policy for disconnected components is now the
 implemented behavior:

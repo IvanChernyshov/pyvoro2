@@ -161,7 +161,7 @@ implementation-oriented details.
 | [Topology and graphs](guide/topology.md) | How to build periodic neighbor graphs and how normalization helps in both 2D and 3D. |
 | [Power fitting](guide/powerfit.md) | Fit power weights from pairwise bisector constraints, realized-boundary matching, and self-consistent active sets in 2D or 3D. |
 | [Visualization](guide/visualization.md) | Optional `py3Dmol` / `matplotlib` helpers for debugging and exploratory analysis. |
-| [Examples (notebooks)](notebooks/01_basic_compute.ipynb) | End-to-end examples, including focused power-fitting notebooks for reports and infeasibility witnesses. |
+| [Examples (notebooks)](guide/notebooks.md) | End-to-end examples, including focused power-fitting notebooks for reports, infeasibility witnesses, and active-set path diagnostics. |
 | [API reference](reference/planar/index.md) | The full reference (docstrings) for both the spatial and planar APIs. |
 
 ## Installation
@@ -176,11 +176,19 @@ Optional extras:
 
 - `pyvoro2[viz]` for the 3D `py3Dmol` viewer (and 2D plotting too)
 - `pyvoro2[viz2d]` for 2D matplotlib plotting only
+- `pyvoro2[all]` to install the full optional stack used for local notebook,
+  docs, lint, and publishability checks
 
 To build from source (requires a C++ compiler and Python development headers):
 
 ```bash
 pip install -e .
+```
+
+For contributor-style local validation, install the full optional stack:
+
+```bash
+pip install -e ".[all]"
 ```
 
 ## Testing
@@ -214,6 +222,14 @@ Additional test groups are **opt-in**:
   ```
 
 Tip: you can combine markers, e.g. `pytest -m "fuzz and pyvoro" --fuzz-n 100`.
+
+## Release and publishability checks
+
+For a one-shot local publishability pass (lint, notebook execution, exported notebook sync, README sync, tests, docs, build, metadata checks, and wheel smoke test):
+
+```bash
+python tools/release_check.py
+```
 
 ## Project status
 

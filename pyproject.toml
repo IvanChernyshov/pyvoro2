@@ -47,12 +47,17 @@ Issues = 'https://github.com/DeloneCommons/pyvoro2/issues'
 
 [project.optional-dependencies]
 test = ['pytest']
-dev = ['pytest', 'flake8', 'tomli; python_version < "3.11"']
+dev = [
+  'pytest',
+  'flake8',
+  'build',
+  'twine',
+  'tomli; python_version < "3.11"',
+]
 docs = [
   'mkdocs>=1.6',
   'mkdocs-material>=9.5',
   'mkdocstrings[python]>=0.27',
-  'mkdocs-jupyter>=0.25',
   'pymdown-extensions>=10.0',
   'mkdocs-section-index>=0.3.9',
 ]
@@ -62,6 +67,21 @@ viz2d = [
 viz = [
   'matplotlib',
   'py3Dmol',
+]
+
+all = [
+  'pytest',
+  'flake8',
+  'build',
+  'twine',
+  'mkdocs>=1.6',
+  'mkdocs-material>=9.5',
+  'mkdocstrings[python]>=0.27',
+  'pymdown-extensions>=10.0',
+  'mkdocs-section-index>=0.3.9',
+  'matplotlib',
+  'py3Dmol',
+  'tomli; python_version < "3.11"',
 ]
 
 [tool.scikit-build]

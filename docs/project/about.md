@@ -96,6 +96,14 @@ pip install pyvoro
 pytest -m pyvoro --fuzz-n 100
 ```
 
+For contributor-style local validation of the whole repository, including
+notebooks, docs, generated files, and distribution artifacts:
+
+```bash
+pip install -e ".[all]"
+python tools/release_check.py
+```
+
 For continuous integration and local development, the recommended approach is to run
 the deterministic suite frequently, and run fuzz/cross-check suites periodically.
 

@@ -361,14 +361,17 @@ freeze an open-ended callback API for arbitrary user-defined objectives.
 
 ## Worked example notebooks
 
-Two focused notebooks complement the guide:
+Three focused notebooks complement the guide:
 
-- [`06_powerfit_reports.ipynb`](../notebooks/06_powerfit_reports.ipynb)
+- [`06_powerfit_reports`](../notebooks/06_powerfit_reports.md)
   shows how to export low-level fits, realized-pair diagnostics, and
   self-consistent active-set results as rows or JSON-friendly reports.
-- [`07_powerfit_infeasibility.ipynb`](../notebooks/07_powerfit_infeasibility.ipynb)
+- [`07_powerfit_infeasibility`](../notebooks/07_powerfit_infeasibility.md)
   shows how contradictory hard restrictions are reported through
   `status`, `is_infeasible`, `conflict`, and report bundles.
+- [`08_powerfit_active_path`](../notebooks/08_powerfit_active_path.md)
+  shows how to inspect transient active-set path diagnostics separately from
+  the final-state report objects.
 
 These examples are aimed at downstream packages that want to keep the solver
 API numerical while still producing human-readable logs, cached payloads, or UI

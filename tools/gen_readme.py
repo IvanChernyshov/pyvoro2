@@ -25,6 +25,7 @@ Configuration:
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 import os
 import re
@@ -327,7 +328,7 @@ def _rewrite_links(md: str, *, src_path: Path, docs_site: str, raw_base: str) ->
     return '\n'.join(out_lines)
 
 
-def main() -> None:
+def generate_readme(output: Path = OUT) -> str:
 
     for p in PAGES:
         if not p.exists():
@@ -351,18 +352,15 @@ def main() -> None:
 
     parts: list[str] = []
 
-    # Header + badges.
     parts.append(
         f'# {pkg_name}\n\n' + badges + '\n\n' + f'**Documentation:** {docs_site}\n'
     )
 
-    # Add pages.
     for i, p in enumerate(PAGES):
         md = p.read_text(encoding='utf-8').strip() + '\n'
         md = _rewrite_links(md, src_path=p, docs_site=docs_site, raw_base=raw_base)
 
         if i == 0:
-            # Strip the first H1 if present (we already provide the README title).
             md_lines = md.splitlines()
             if md_lines and md_lines[0].strip().lower() in (
                 f'# {pkg_name}',
@@ -380,10 +378,32 @@ def main() -> None:
         '*This README is auto-generated from the MkDocs sources in `docs/`.*\n'
         'To update it, edit the docs pages and re-run: `python tools/gen_readme.py`.\n'
     )
+    return out + '\n'
 
-    OUT.write_text(out + '\n', encoding='utf-8')
-    print(f'Wrote {OUT}')
+
+def main() -> int:
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--output', type=Path, default=OUT)
+    parser.add_argument(
+        '--check',
+        action='store_true',
+        help='exit with status 1 when README.md is out of sync',
+    )
+    args = parser.parse_args()
+
+    rendered = generate_readme(args.output)
+    if args.check:
+        current = args.output.read_text(encoding='utf-8').replace('\r\n', '\n')
+        if current != rendered:
+            print(f'{args.output} is out of sync with docs/', flush=True)
+            return 1
+        return 0
+
+    args.output.write_text(rendered, encoding='utf-8', newline='\n')
+    print(f'Wrote {args.output}')
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())
