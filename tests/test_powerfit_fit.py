@@ -14,6 +14,37 @@ def test_fit_power_weights_fraction_two_points_analytic():
     assert res.status == 'optimal'
 
 
+def test_fit_result_exposes_algebraic_edge_diagnostics():
+    from pyvoro2 import fit_power_weights, resolve_pair_bisector_constraints
+
+    pts = np.array([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]], dtype=float)
+    res = fit_power_weights(pts, [(0, 1, 0.25)], measurement='fraction')
+
+    assert res.edge_diagnostics is not None
+    diag = res.edge_diagnostics
+    assert np.allclose(diag.alpha, np.array([0.125]))
+    assert np.allclose(diag.beta, np.array([0.5]))
+    assert np.allclose(diag.z_obs, np.array([-2.0]))
+    assert np.allclose(diag.z_fit, np.array([-2.0]))
+    assert np.allclose(diag.residual, np.array([0.0]))
+    assert np.allclose(diag.edge_weight, np.array([0.015625]))
+    assert np.isclose(diag.weighted_l2, 0.0)
+    assert np.isclose(diag.weighted_rmse, 0.0)
+    assert np.isclose(diag.rmse, 0.0)
+    assert np.isclose(diag.mae, 0.0)
+
+    constraints = resolve_pair_bisector_constraints(
+        pts,
+        [(0, 1, 0.25)],
+        measurement='fraction',
+    )
+    rows = res.to_records(constraints)
+    assert rows[0]['z_obs'] == pytest.approx(-2.0)
+    assert rows[0]['z_fit'] == pytest.approx(-2.0)
+    assert rows[0]['algebraic_residual'] == pytest.approx(0.0)
+    assert rows[0]['edge_weight'] == pytest.approx(0.015625)
+
+
 def test_fit_power_weights_fraction_allows_values_outside_segment():
     from pyvoro2 import fit_power_weights
 
@@ -162,7 +193,8 @@ def test_huber_loss_is_available_as_an_alternative_mismatch():
         max_iter=5000,
     )
 
-    assert res.status in ('optimal', 'max_iter')
+    assert res.status == 'optimal'
+    assert res.converged is True
     assert res.predicted is not None
 
 

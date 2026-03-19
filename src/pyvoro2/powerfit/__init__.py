@@ -36,6 +36,7 @@ from .report import (
     write_report_json,
 )
 from .solver import (
+    AlgebraicEdgeDiagnostics,
     ConnectivityDiagnostics,
     ConnectivityDiagnosticsError,
     ConstraintGraphDiagnostics,
@@ -59,6 +60,7 @@ __all__ = [
     'ReciprocalBoundaryPenalty',
     'L2Regularization',
     'FitModel',
+    'AlgebraicEdgeDiagnostics',
     'ConstraintGraphDiagnostics',
     'ConnectivityDiagnostics',
     'ConnectivityDiagnosticsError',

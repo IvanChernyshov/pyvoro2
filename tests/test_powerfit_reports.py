@@ -177,6 +177,36 @@ def test_active_set_report_supports_planar_tessellation_diagnostics() -> None:
     assert report['tessellation_diagnostics']['ok_area'] is True
 
 
+def test_fit_report_includes_edge_diagnostics_and_algebraic_rows():
+    from pyvoro2 import (
+        build_fit_report,
+        fit_power_weights,
+        resolve_pair_bisector_constraints,
+    )
+
+    pts = np.array([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]], dtype=float)
+    constraints = resolve_pair_bisector_constraints(
+        pts,
+        [(10, 20, 0.25)],
+        ids=[10, 20],
+        index_mode='id',
+        measurement='fraction',
+    )
+    fit = fit_power_weights(pts, constraints)
+
+    report = build_fit_report(fit, constraints, use_ids=True)
+
+    assert report['edge_diagnostics']['z_obs'] == [-2.0]
+    assert report['edge_diagnostics']['z_fit'] == [-2.0]
+    assert report['edge_diagnostics']['residual'] == [0.0]
+    assert report['edge_diagnostics']['edge_weight'] == [0.015625]
+    assert report['fit_records'][0]['site_i'] == 10
+    assert report['fit_records'][0]['z_obs'] == -2.0
+    assert report['fit_records'][0]['z_fit'] == -2.0
+    assert report['fit_records'][0]['algebraic_residual'] == 0.0
+    assert report['fit_records'][0]['edge_weight'] == 0.015625
+
+
 def test_fit_report_includes_connectivity_diagnostics():
     from pyvoro2 import (
         build_fit_report,

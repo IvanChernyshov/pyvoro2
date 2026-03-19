@@ -20,6 +20,7 @@ from .solver import (
     ConstraintGraphDiagnostics,
     HardConstraintConflict,
     PowerWeightFitResult,
+    _edge_diagnostics_for_result,
 )
 
 
@@ -226,6 +227,39 @@ def _conflict_record(
     }
 
 
+def _edge_diagnostics_record(
+    result: PowerWeightFitResult,
+    constraints: PairBisectorConstraints,
+) -> dict[str, object]:
+    diagnostics = _edge_diagnostics_for_result(result, constraints)
+    return {
+        'alpha': diagnostics.alpha.tolist(),
+        'beta': diagnostics.beta.tolist(),
+        'z_obs': diagnostics.z_obs.tolist(),
+        'z_fit': (
+            None if diagnostics.z_fit is None else diagnostics.z_fit.tolist()
+        ),
+        'residual': (
+            None
+            if diagnostics.residual is None
+            else diagnostics.residual.tolist()
+        ),
+        'edge_weight': diagnostics.edge_weight.tolist(),
+        'weighted_l2': (
+            None
+            if diagnostics.weighted_l2 is None
+            else float(diagnostics.weighted_l2)
+        ),
+        'weighted_rmse': (
+            None
+            if diagnostics.weighted_rmse is None
+            else float(diagnostics.weighted_rmse)
+        ),
+        'rmse': None if diagnostics.rmse is None else float(diagnostics.rmse),
+        'mae': None if diagnostics.mae is None else float(diagnostics.mae),
+    }
+
+
 def build_fit_report(
     result: PowerWeightFitResult,
     constraints: PairBisectorConstraints,
@@ -260,6 +294,7 @@ def build_fit_report(
         },
         'constraints': list(constraints.to_records(use_ids=use_ids)),
         'fit_records': list(result.to_records(constraints, use_ids=use_ids)),
+        'edge_diagnostics': _edge_diagnostics_record(result, constraints),
         'weights': None if result.weights is None else result.weights.tolist(),
         'radii': None if result.radii is None else result.radii.tolist(),
         'weight_shift': (

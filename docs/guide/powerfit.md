@@ -123,6 +123,7 @@ The result contains:
 - fitted `weights` and shifted `radii`,
 - predicted separator locations in both fraction and position form,
 - residuals in the chosen measurement space,
+- `edge_diagnostics` with algebraic edge-space quantities such as `z_obs`, `z_fit`, and weighted inconsistency summaries,
 - solver/termination metadata,
 - and explicit infeasibility reporting for contradictory hard constraints.
 
@@ -141,7 +142,7 @@ Both low-level fits and active-set results also provide `to_records(...)` helper
 that turn per-constraint diagnostics into plain Python rows for downstream
 packages, table exporters, or custom reporting.
 
-For radii output, 0.6.1 makes the gauge choice explicit:
+For radii output, 0.6.2 makes the gauge choice explicit:
 
 - by default, `weights_to_radii(...)` uses the minimal additive shift that makes
   all returned radii non-negative;
@@ -341,9 +342,9 @@ The main current restriction is geometric, not algebraic:
 - 2D currently supports `Box` and rectangular `RectangularCell`;
 - there is **no** planar oblique-periodic `PeriodicCell` yet.
 
-### Objective-model scope for 0.6.1
+### Objective-model scope for 0.6.2
 
-The 0.6.1 line still keeps the built-in objective family compact:
+The 0.6.2 line still keeps the built-in objective family compact:
 
 - mismatch terms: `SquaredLoss`, `HuberLoss`
 - hard feasibility: `Interval`, `FixedValue`

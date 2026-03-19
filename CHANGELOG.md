@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 The format is based on *Keep a Changelog*, and this project follows *Semantic Versioning*.
 
+## [0.6.2] - 2026-03-19
+
+### Added
+
+- `PowerWeightFitResult.edge_diagnostics` with theorem-facing edge-space arrays and summaries: `alpha`, `beta`, `z_obs`, `z_fit`, algebraic residuals, and weighted/unweighted algebraic inconsistency metrics.
+- Fit reports and per-constraint record exporters now serialize the new algebraic edge diagnostics alongside the existing measurement-space predictions and residuals.
+- A medium-size robust-fit regression test that checks the native Huber/ADMM path on a deterministic sparse-outlier benchmark rather than only on tiny two-point cases.
+
+### Changed
+
+- The iterative `solver='admm'` backend now splits on the predicted measurement variable itself (`y = beta + alpha (w_i - w_j)`) instead of on raw weight differences, so the linear solve uses the scientifically natural `alpha^2` scaling of the graph Laplacian.
+- The ADMM backend now warm-starts from the quadratic analytic fit when that warm start is identifiable, improving convergence on robust Huber fits without expanding the public optimizer API.
+
+### Fixed
+
+- Native Huber fitting via `FitModel(mismatch=HuberLoss(...))` and `solver='admm'` no longer stalls or blows up on the medium-size sparse-outlier benchmark family used during the JCAM paper work; the corrected native path now matches the expected measurement-space residual quality and converges in a small number of iterations on the representative failure case.
+
 ## [0.6.1] - 2026-03-16
 
 ### Added

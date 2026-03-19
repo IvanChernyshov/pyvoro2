@@ -15,6 +15,7 @@ from .solver import (
     PowerWeightFitResult,
     _apply_connectivity_policy,
     _build_active_set_connectivity_diagnostics,
+    _compute_edge_diagnostics,
     _connected_components,
     _difference_identifying_mask,
     _predict_measurements,
@@ -891,6 +892,10 @@ def _rebuild_fit_with_weights(
         residuals=residuals,
         rms_residual=rms,
         max_residual=mx,
+        edge_diagnostics=_compute_edge_diagnostics(
+            constraints,
+            weights=weights,
+        ),
     )
 
 

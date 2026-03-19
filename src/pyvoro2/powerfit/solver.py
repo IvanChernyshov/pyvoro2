@@ -77,6 +77,22 @@ class ConnectivityDiagnosticsError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class AlgebraicEdgeDiagnostics:
+    """Edge-space diagnostics matching the paper-side algebraic formulas."""
+
+    alpha: np.ndarray
+    beta: np.ndarray
+    z_obs: np.ndarray
+    z_fit: np.ndarray | None
+    residual: np.ndarray | None
+    edge_weight: np.ndarray
+    weighted_l2: float | None
+    weighted_rmse: float | None
+    rmse: float | None
+    mae: float | None
+
+
+@dataclass(frozen=True, slots=True)
 class PowerWeightFitResult:
     """Result of inverse fitting of power weights."""
 
@@ -102,6 +118,7 @@ class PowerWeightFitResult:
     conflict: 'HardConstraintConflict | None'
     warnings: tuple[str, ...]
     connectivity: ConnectivityDiagnostics | None = None
+    edge_diagnostics: AlgebraicEdgeDiagnostics | None = None
 
     @property
     def is_optimal(self) -> bool:
@@ -134,6 +151,7 @@ class PowerWeightFitResult:
         if constraints.n_constraints != int(self.target.shape[0]):
             raise ValueError('constraints do not match the fit result length')
         left, right = constraints.pair_labels(use_ids=use_ids)
+        edge_diag = _edge_diagnostics_for_result(self, constraints)
         rows: list[dict[str, object]] = []
         left_is_int = np.issubdtype(np.asarray(left).dtype, np.integer)
         right_is_int = np.issubdtype(np.asarray(right).dtype, np.integer)
@@ -168,6 +186,20 @@ class PowerWeightFitResult:
                         if self.residuals is None
                         else float(self.residuals[k])
                     ),
+                    'alpha': float(edge_diag.alpha[k]),
+                    'beta': float(edge_diag.beta[k]),
+                    'z_obs': float(edge_diag.z_obs[k]),
+                    'z_fit': (
+                        None
+                        if edge_diag.z_fit is None
+                        else float(edge_diag.z_fit[k])
+                    ),
+                    'algebraic_residual': (
+                        None
+                        if edge_diag.residual is None
+                        else float(edge_diag.residual[k])
+                    ),
+                    'edge_weight': float(edge_diag.edge_weight[k]),
                 }
             )
         return tuple(rows)
@@ -430,6 +462,12 @@ def _fit_power_weights_resolved(
     hard = _hard_constraint_bounds(model.feasible, geom.alpha, geom.beta)
     z_lo = hard[0] if hard is not None else None
     z_hi = hard[1] if hard is not None else None
+    hard_measurement = _hard_constraint_measurement_bounds(
+        model.feasible,
+        constraints.n_constraints,
+    )
+    y_lo = hard_measurement[0] if hard_measurement is not None else None
+    y_hi = hard_measurement[1] if hard_measurement is not None else None
 
     nonquadratic = _requires_admm(model)
     if solver == 'auto':
@@ -496,6 +534,11 @@ def _fit_power_weights_resolved(
                 conflict=conflict,
                 warnings=tuple(warnings_list),
                 connectivity=connectivity,
+                edge_diagnostics=_compute_edge_diagnostics(
+                    constraints,
+                    weights=None,
+                    geom=geom,
+                ),
             )
     else:
         conflict = None
@@ -546,6 +589,11 @@ def _fit_power_weights_resolved(
             conflict=conflict,
             warnings=tuple(warnings_list),
             connectivity=connectivity,
+            edge_diagnostics=_compute_edge_diagnostics(
+                constraints,
+                weights=weights,
+                geom=geom,
+            ),
         )
 
     weights = np.zeros(n, dtype=np.float64)
@@ -585,9 +633,6 @@ def _fit_power_weights_resolved(
             target_c = geom.target[mask]
             conf_c = constraints.confidence[mask]
             w0_c = w0[idx_nodes]
-            z_lo_c = None if z_lo is None else z_lo[mask]
-            z_hi_c = None if z_hi is None else z_hi[mask]
-
             if solver_eff == 'analytic':
                 w_c = _solve_component_analytic(ii, jj, a_c, b_c, w0_c, lam)
                 iters = 1
@@ -607,8 +652,8 @@ def _fit_power_weights_resolved(
                     max_iter=max_iter,
                     tol_abs=tol_abs,
                     tol_rel=tol_rel,
-                    z_lo=z_lo_c,
-                    z_hi=z_hi_c,
+                    y_lo=None if y_lo is None else y_lo[mask],
+                    y_hi=None if y_hi is None else y_hi[mask],
                 )
             if not np.all(np.isfinite(w_c)):
                 raise _NumericalFailure('component solver returned non-finite weights')
@@ -663,6 +708,11 @@ def _fit_power_weights_resolved(
             conflict=conflict,
             warnings=tuple(warnings_list),
             connectivity=connectivity,
+            edge_diagnostics=_compute_edge_diagnostics(
+                constraints,
+                weights=None,
+                geom=geom,
+            ),
         )
 
     if converged_all:
@@ -692,6 +742,11 @@ def _fit_power_weights_resolved(
         conflict=conflict,
         warnings=tuple(warnings_list),
         connectivity=connectivity,
+        edge_diagnostics=_compute_edge_diagnostics(
+            constraints,
+            weights=weights,
+            geom=geom,
+        ),
     )
 
 
@@ -726,6 +781,77 @@ def _predict_measurements(
         np.asarray(t_pred, dtype=np.float64),
         np.asarray(x_pred, dtype=np.float64),
         np.asarray(pred, dtype=np.float64),
+    )
+
+
+def _compute_edge_diagnostics(
+    constraints: PairBisectorConstraints,
+    *,
+    weights: np.ndarray | None,
+    geom: _MeasurementGeometry | None = None,
+) -> AlgebraicEdgeDiagnostics:
+    if geom is None:
+        geom = _measurement_geometry(constraints)
+
+    alpha = np.asarray(geom.alpha, dtype=np.float64).copy()
+    beta = np.asarray(geom.beta, dtype=np.float64).copy()
+    z_obs = (geom.target - beta) / alpha
+    edge_weight = (
+        np.asarray(constraints.confidence, dtype=np.float64) * (alpha * alpha)
+    )
+
+    if weights is None:
+        return AlgebraicEdgeDiagnostics(
+            alpha=alpha,
+            beta=beta,
+            z_obs=np.asarray(z_obs, dtype=np.float64),
+            z_fit=None,
+            residual=None,
+            edge_weight=np.asarray(edge_weight, dtype=np.float64),
+            weighted_l2=None,
+            weighted_rmse=None,
+            rmse=None,
+            mae=None,
+        )
+
+    w = np.asarray(weights, dtype=np.float64)
+    z_fit = w[constraints.i] - w[constraints.j]
+    residual = z_obs - z_fit
+    weighted_sq = edge_weight * residual * residual
+    if residual.size:
+        weighted_l2 = float(np.linalg.norm(np.sqrt(edge_weight) * residual))
+        weighted_rmse = float(np.sqrt(np.mean(weighted_sq)))
+        rmse = float(np.sqrt(np.mean(residual * residual)))
+        mae = float(np.mean(np.abs(residual)))
+    else:
+        weighted_l2 = 0.0
+        weighted_rmse = 0.0
+        rmse = 0.0
+        mae = 0.0
+
+    return AlgebraicEdgeDiagnostics(
+        alpha=alpha,
+        beta=beta,
+        z_obs=np.asarray(z_obs, dtype=np.float64),
+        z_fit=np.asarray(z_fit, dtype=np.float64),
+        residual=np.asarray(residual, dtype=np.float64),
+        edge_weight=np.asarray(edge_weight, dtype=np.float64),
+        weighted_l2=weighted_l2,
+        weighted_rmse=weighted_rmse,
+        rmse=rmse,
+        mae=mae,
+    )
+
+
+def _edge_diagnostics_for_result(
+    result: PowerWeightFitResult,
+    constraints: PairBisectorConstraints,
+) -> AlgebraicEdgeDiagnostics:
+    if result.edge_diagnostics is not None:
+        return result.edge_diagnostics
+    return _compute_edge_diagnostics(
+        constraints,
+        weights=result.weights,
     )
 
 
@@ -1000,6 +1126,22 @@ def _apply_connectivity_policy(
     raise ValueError('unsupported connectivity policy')
 
 
+def _hard_constraint_measurement_bounds(
+    feasible: HardConstraint | None,
+    n_constraints: int,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    if feasible is None:
+        return None
+    if isinstance(feasible, Interval):
+        lower = np.full(n_constraints, float(feasible.lower), dtype=np.float64)
+        upper = np.full(n_constraints, float(feasible.upper), dtype=np.float64)
+        return lower, upper
+    if isinstance(feasible, FixedValue):
+        lower = np.full(n_constraints, float(feasible.value), dtype=np.float64)
+        return lower, lower.copy()
+    raise TypeError(f'unsupported hard constraint: {type(feasible)!r}')
+
+
 def _hard_constraint_bounds(
     feasible: HardConstraint | None,
     alpha: np.ndarray,
@@ -1227,6 +1369,54 @@ def _solve_component_analytic(
     return w
 
 
+def _positive_confidence_connects_component(
+    n_c: int,
+    I: np.ndarray,
+    J: np.ndarray,
+    confidence: np.ndarray,
+) -> bool:
+    mask = np.asarray(confidence, dtype=np.float64) > 0.0
+    if not np.any(mask):
+        return False
+    comps = _connected_components(n_c, I[mask], J[mask])
+    return len(comps) == 1
+
+
+def _admm_warm_start_weights(
+    I: np.ndarray,
+    J: np.ndarray,
+    alpha: np.ndarray,
+    beta: np.ndarray,
+    target: np.ndarray,
+    confidence: np.ndarray,
+    w0: np.ndarray,
+    *,
+    lambda_regularize: float,
+) -> np.ndarray:
+    n_c = int(np.max(np.maximum(I, J))) + 1
+    lam = float(lambda_regularize)
+    if lam > 0.0 or _positive_confidence_connects_component(
+        n_c,
+        I,
+        J,
+        confidence,
+    ):
+        try:
+            return _solve_component_analytic(
+                I,
+                J,
+                np.asarray(confidence, dtype=np.float64) * (alpha * alpha),
+                (target - beta) / alpha,
+                w0,
+                lam,
+            )
+        except np.linalg.LinAlgError:
+            pass
+    if lam > 0.0:
+        return np.asarray(w0, dtype=np.float64).copy()
+    return np.zeros(n_c, dtype=np.float64)
+
+
 def _solve_component_admm(
     I: np.ndarray,
     J: np.ndarray,
@@ -1242,26 +1432,27 @@ def _solve_component_admm(
     max_iter: int,
     tol_abs: float,
     tol_rel: float,
-    z_lo: np.ndarray | None,
-    z_hi: np.ndarray | None,
+    y_lo: np.ndarray | None,
+    y_hi: np.ndarray | None,
 ) -> tuple[np.ndarray, int, bool]:
     n_c = int(np.max(np.maximum(I, J))) + 1
     m_c = I.shape[0]
     lam = float(lambda_regularize)
 
-    if lam > 0:
+    if lam > 0.0:
         anchor: int | None = None
         free = np.arange(n_c, dtype=np.int64)
     else:
         anchor = 0
         free = np.arange(1, n_c, dtype=np.int64)
 
+    edge_scale = alpha * alpha
     L = np.zeros((n_c, n_c), dtype=np.float64)
-    for i, j in zip(I.tolist(), J.tolist()):
-        L[i, i] += 1.0
-        L[j, j] += 1.0
-        L[i, j] -= 1.0
-        L[j, i] -= 1.0
+    for i, j, scale in zip(I.tolist(), J.tolist(), edge_scale.tolist()):
+        L[i, i] += scale
+        L[j, j] += scale
+        L[i, j] -= scale
+        L[j, i] -= scale
 
     M = rho * L + lam * np.eye(n_c)
     Mf = M[np.ix_(free, free)]
@@ -1292,67 +1483,78 @@ def _solve_component_admm(
             raise _NumericalFailure('ADMM linear solve produced non-finite values')
         return x
 
-    # Initialize at the target z implied by the chosen measurement.
-    z = (target - beta) / alpha
-    if z_lo is not None and z_hi is not None:
-        z = np.clip(z, z_lo, z_hi)
+    w = _admm_warm_start_weights(
+        I,
+        J,
+        alpha,
+        beta,
+        target,
+        confidence,
+        w0,
+        lambda_regularize=lam,
+    )
+    if not np.all(np.isfinite(w)):
+        raise _NumericalFailure('ADMM warm start produced non-finite values')
+    y = beta + alpha * (w[I] - w[J])
+    if y_lo is not None:
+        y = np.maximum(y, y_lo)
+    if y_hi is not None:
+        y = np.minimum(y, y_hi)
     u = np.zeros(m_c, dtype=np.float64)
-    w = np.zeros(n_c, dtype=np.float64)
     converged = False
 
     for _it in range(1, max_iter + 1):
-        y = z - u
         rhs = np.zeros(n_c, dtype=np.float64)
-        np.add.at(rhs, I, rho * y)
-        np.add.at(rhs, J, -rho * y)
-        if lam > 0:
+        edge_rhs = rho * alpha * (y - u - beta)
+        np.add.at(rhs, I, edge_rhs)
+        np.add.at(rhs, J, -edge_rhs)
+        if lam > 0.0:
             rhs += lam * w0
 
-        rhs_free = rhs[free]
-        w_free = solve_M(rhs_free)
+        w_free = solve_M(rhs[free])
         if anchor is not None:
             w[anchor] = 0.0
         w[free] = w_free
         if not np.all(np.isfinite(w)):
             raise _NumericalFailure('ADMM primal iterate became non-finite')
 
-        v = (w[I] - w[J]) + u
-        z_prev = z.copy()
-        z = _prox_edge_objective(
-            v,
-            alpha,
-            beta,
+        predicted_y = beta + alpha * (w[I] - w[J])
+        y_prev = y.copy()
+        y = _prox_measurement_objective(
+            predicted_y + u,
             target,
             confidence,
             model=model,
             rho=rho,
-            z_lo=z_lo,
-            z_hi=z_hi,
+            y_lo=y_lo,
+            y_hi=y_hi,
         )
-
-        Aw = w[I] - w[J]
-        r = Aw - z
+        r = predicted_y - y
         u = u + r
         if not (
-            np.all(np.isfinite(z))
+            np.all(np.isfinite(predicted_y))
+            and np.all(np.isfinite(y))
             and np.all(np.isfinite(r))
             and np.all(np.isfinite(u))
-            and np.all(np.isfinite(Aw))
         ):
             raise _NumericalFailure('ADMM iterates became non-finite')
 
         r_norm = float(np.linalg.norm(r))
-        z_norm = float(np.linalg.norm(z))
-        Aw_norm = float(np.linalg.norm(Aw))
-        eps_pri = np.sqrt(m_c) * tol_abs + tol_rel * max(Aw_norm, z_norm)
+        predicted_norm = float(np.linalg.norm(predicted_y))
+        y_norm = float(np.linalg.norm(y))
+        eps_pri = np.sqrt(m_c) * tol_abs + tol_rel * max(predicted_norm, y_norm)
 
-        dz = z - z_prev
+        dy = y - y_prev
         s_vec = np.zeros(n_c, dtype=np.float64)
-        np.add.at(s_vec, I, rho * dz)
-        np.add.at(s_vec, J, -rho * dz)
+        np.add.at(s_vec, I, rho * alpha * dy)
+        np.add.at(s_vec, J, -rho * alpha * dy)
         s_norm = float(np.linalg.norm(s_vec[free])) if free.size else 0.0
-        u_norm = float(np.linalg.norm(u))
-        eps_dual = np.sqrt(len(free)) * tol_abs + tol_rel * rho * u_norm
+
+        dual_vec = np.zeros(n_c, dtype=np.float64)
+        np.add.at(dual_vec, I, rho * alpha * u)
+        np.add.at(dual_vec, J, -rho * alpha * u)
+        dual_norm = float(np.linalg.norm(dual_vec[free])) if free.size else 0.0
+        eps_dual = np.sqrt(len(free)) * tol_abs + tol_rel * dual_norm
 
         if r_norm <= eps_pri and s_norm <= eps_dual:
             converged = True
@@ -1361,32 +1563,64 @@ def _solve_component_admm(
     return w, _it, converged
 
 
-def _prox_edge_objective(
+def _prox_measurement_mismatch_only(
     v: np.ndarray,
-    alpha: np.ndarray,
-    beta: np.ndarray,
+    target: np.ndarray,
+    confidence: np.ndarray,
+    mismatch: SquaredLoss | HuberLoss,
+    rho: float,
+) -> np.ndarray:
+    if isinstance(mismatch, SquaredLoss):
+        denom = rho + (2.0 * confidence)
+        return (rho * v + (2.0 * confidence * target)) / denom
+    if isinstance(mismatch, HuberLoss):
+        delta = float(mismatch.delta)
+        y_quad = (rho * v + confidence * target) / (rho + confidence)
+        lower = target - delta
+        upper = target + delta
+        y_lower = v + (confidence * delta) / rho
+        y_upper = v - (confidence * delta) / rho
+        return np.where(
+            y_quad < lower,
+            y_lower,
+            np.where(y_quad > upper, y_upper, y_quad),
+        )
+    raise TypeError(f'unsupported mismatch: {type(mismatch)!r}')
+
+
+def _prox_measurement_objective(
+    v: np.ndarray,
     target: np.ndarray,
     confidence: np.ndarray,
     *,
     model: FitModel,
     rho: float,
-    z_lo: np.ndarray | None,
-    z_hi: np.ndarray | None,
+    y_lo: np.ndarray | None,
+    y_hi: np.ndarray | None,
 ) -> np.ndarray:
-    z = v.copy()
-    if z_lo is not None and z_hi is not None:
-        z = np.clip(z, z_lo, z_hi)
+    y = _prox_measurement_mismatch_only(
+        v,
+        target,
+        confidence,
+        model.mismatch,
+        rho,
+    )
+    if y_lo is not None:
+        y = np.maximum(y, y_lo)
+    if y_hi is not None:
+        y = np.minimum(y, y_hi)
+    if not model.penalties:
+        return y
 
     for _ in range(60):
-        y = beta + alpha * z
         fp_y, fpp_y = _mismatch_derivatives(y, target, confidence, model.mismatch)
         for penalty in model.penalties:
             p_fp_y, p_fpp_y = _penalty_derivatives(y, penalty)
             fp_y = fp_y + p_fp_y
             fpp_y = fpp_y + p_fpp_y
 
-        g = fp_y * alpha + rho * (z - v)
-        gp = fpp_y * (alpha**2) + rho
+        g = fp_y + rho * (y - v)
+        gp = fpp_y + rho
         if not np.all(np.isfinite(gp)) or np.any(np.abs(gp) < 1e-18):
             raise _NumericalFailure(
                 'prox Newton derivative became singular or non-finite'
@@ -1394,14 +1628,16 @@ def _prox_edge_objective(
         step = g / gp
         if not np.all(np.isfinite(step)):
             raise _NumericalFailure('prox Newton step became non-finite')
-        z_new = z - step
-        if z_lo is not None and z_hi is not None:
-            z_new = np.clip(z_new, z_lo, z_hi)
+        y_new = y - step
+        if y_lo is not None:
+            y_new = np.maximum(y_new, y_lo)
+        if y_hi is not None:
+            y_new = np.minimum(y_new, y_hi)
         if float(np.max(np.abs(step))) < 1e-12:
-            z = z_new
+            y = y_new
             break
-        z = z_new
-    return z
+        y = y_new
+    return y
 
 
 def _mismatch_derivatives(

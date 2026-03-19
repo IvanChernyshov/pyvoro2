@@ -79,6 +79,90 @@ def test_zero_confidence_rows_do_not_join_effective_components():
     assert np.allclose(res.weights[2], 0.0, atol=1e-12)
 
 
+def test_huber_admm_handles_medium_size_sparse_outliers():
+    from pyvoro2 import (
+        FitModel,
+        HuberLoss,
+        fit_power_weights,
+        resolve_pair_bisector_constraints,
+    )
+
+    rng = np.random.default_rng(20260318)
+    grid = np.array(
+        [(x, y, z) for x in range(4) for y in range(3) for z in range(2)],
+        dtype=float,
+    )
+    pts = (2.0 * grid) + (0.07 * rng.normal(size=grid.shape))
+    true_weights = 0.08 * rng.normal(size=pts.shape[0])
+    true_weights -= np.mean(true_weights)
+
+    clean_rows: list[tuple[int, int, float]] = []
+    for i in range(pts.shape[0]):
+        for j in range(i + 1, pts.shape[0]):
+            d2 = float(np.sum((pts[i] - pts[j]) ** 2))
+            value = 0.5 + (true_weights[i] - true_weights[j]) / (2.0 * d2)
+            clean_rows.append((i, j, value))
+
+    noisy_rows = [list(row) for row in clean_rows]
+    outlier_count = max(1, int(round(0.05 * len(noisy_rows))))
+    outlier_idx = rng.choice(len(noisy_rows), size=outlier_count, replace=False)
+    outlier_step = rng.choice([-0.08, 0.08], size=outlier_idx.size)
+    for idx, step in zip(outlier_idx, outlier_step, strict=True):
+        noisy_rows[int(idx)][2] += float(step)
+
+    clean = resolve_pair_bisector_constraints(
+        pts,
+        clean_rows,
+        measurement='fraction',
+    )
+    noisy = resolve_pair_bisector_constraints(
+        pts,
+        [tuple(row) for row in noisy_rows],
+        measurement='fraction',
+    )
+
+    squared = fit_power_weights(
+        pts,
+        noisy,
+        measurement='fraction',
+        solver='analytic',
+    )
+    huber = fit_power_weights(
+        pts,
+        noisy,
+        measurement='fraction',
+        model=FitModel(mismatch=HuberLoss(delta=0.01)),
+        solver='admm',
+        max_iter=4000,
+    )
+
+    def _centered_weight_rmse(weights: np.ndarray) -> float:
+        centered = np.asarray(weights, dtype=float) - np.mean(weights)
+        target = true_weights - np.mean(true_weights)
+        return float(np.sqrt(np.mean((centered - target) ** 2)))
+
+    def _clean_measurement_rmse(weights: np.ndarray) -> float:
+        diff = (
+            np.asarray(weights, dtype=float)[clean.i]
+            - np.asarray(weights, dtype=float)[clean.j]
+        )
+        predicted = 0.5 + diff / (2.0 * clean.distance2)
+        residual = predicted - clean.target_fraction
+        return float(np.sqrt(np.mean(residual * residual)))
+
+    assert huber.status == 'optimal'
+    assert huber.converged is True
+    assert huber.n_iter < 200
+    assert huber.edge_diagnostics is not None
+    assert np.isfinite(huber.edge_diagnostics.weighted_l2)
+    assert _centered_weight_rmse(huber.weights) < (
+        0.35 * _centered_weight_rmse(squared.weights)
+    )
+    assert _clean_measurement_rmse(huber.weights) < (
+        0.35 * _clean_measurement_rmse(squared.weights)
+    )
+
+
 def test_empty_resolved_constraints_use_regularization_only_solution():
     from pyvoro2 import FitModel, L2Regularization, fit_power_weights
     from pyvoro2.powerfit.constraints import resolve_pair_bisector_constraints
